@@ -8,7 +8,8 @@ description: >-
   Emphasize integral feedback from accumulated errors over time and derivative
   feedback from predicted future errors. Also use it when asked to draft a
   reusable prompt or workflow that makes another AI coding agent measure
-  correctness before changing code.
+  correctness before changing code. For UI-related changes in apps, libs, or
+  features, use this with the pid-ui-sensors skill.
 ---
 
 # PID
@@ -36,15 +37,15 @@ Use these terms consistently:
 ### PID Terms
 
 - **P / Proportional feedback**: correct the immediate measured error. Use the
-  current compiler error, failing assertion, runtime exception, or observed UI
-  mismatch to choose the next patch.
+  current compiler error, failing assertion, runtime exception, or observed
+  behavior mismatch to choose the next patch.
 - **I / Integral feedback**: account for accumulated error over time. Track
   repeated failure patterns, repo conventions, user preferences, and unresolved
   validation gaps so the agent stops reintroducing the same class of mistake.
 - **D / Derivative feedback**: predict future error from the rate and direction
   of change. Before risky edits, identify likely failure modes introduced by the
   current patch trajectory, such as type drift, async races, public API changes,
-  missing cleanup, accessibility regressions, or integration breakage.
+  missing cleanup, user-facing regressions, or integration breakage.
 
 The I and D terms are the important tuning tools for coding agents. Integral
 feedback prevents recurring mistakes from surviving across turns. Derivative
@@ -98,6 +99,10 @@ pnpm turbo run test:component
 pnpm turbo run test:integration
 ```
 
+For UI-related changes in `apps/*`, `libs/*`, or `features/*`, also load and
+apply the `pid-ui-sensors` skill for UI-specific sensor selection. Do not
+duplicate that sensor guidance here.
+
 Use them this way:
 
 - `pnpm fmt` MUST run before final validation when code, docs, config, or
@@ -110,8 +115,8 @@ Use them this way:
   changes.
 - `pnpm turbo run test:unit` MUST run when behavior, utilities, hooks,
   components, services, or tests changed and package unit tests exist.
-- `pnpm turbo run test:component` SHOULD run when UI component behavior,
-  rendering, interaction, or accessibility changed and component tests exist.
+- `pnpm turbo run test:component` SHOULD run when component tests exist and
+  directly measure the setpoint.
 - `pnpm turbo run test:integration` SHOULD run when service boundaries,
   database behavior, local infrastructure, API contracts, or cross-package
   integration changed. It MAY require local infrastructure from
@@ -124,10 +129,9 @@ by the relevant broader repository sensor before final completion unless the
 agent explains why that broader command is unavailable or not applicable.
 
 Manual sensors MUST be concrete. Use runtime logs, stack traces, network
-requests, DOM inspection, screenshots, accessibility inspection, or manual diff
-review only when they directly measure the setpoint. Manual diff review MUST
-check for unrelated edits, public API drift, risky cleanup, and accidental
-changes to user work.
+requests, output artifacts, or manual diff review only when they directly
+measure the setpoint. Manual diff review MUST check for unrelated edits, public
+API drift, risky cleanup, and accidental changes to user work.
 
 If an important behavior has no sensor, first make a suggestion to the user for one you think would be useful, then add a small test, assertion, or log only
 when it is within scope. Do not create eval harnesses or broad benchmark files
@@ -140,7 +144,7 @@ Inspect the current implementation before patching. Use concrete evidence:
 - failing test names and assertions
 - compiler or linter errors
 - runtime exceptions and stack traces
-- incorrect UI state or missing DOM behavior
+- incorrect observable state or behavior
 - mismatched request or response shape
 - missing edge cases
 - unexpected side effects
@@ -219,8 +223,8 @@ Context:
 steps>
 
 Sensors:
-<typecheck, focused tests, integration tests, browser checks, logs, diff review,
-or other checks that prove correctness>
+<typecheck, focused tests, integration tests, logs, diff review, specialized
+sensor skills, or other checks that prove correctness>
 
 Constraints:
 <no new dependencies, public API limits, strict types, existing patterns,
