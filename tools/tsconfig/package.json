@@ -1,5 +1,5 @@
 {
-  "name": "@monorepo/tool-tsconfig",
+  "name": "@router/tool-tsconfig",
   "version": "0.0.0",
   "private": true,
   "type": "module",

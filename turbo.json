@@ -45,7 +45,7 @@
     },
     "db:create": {
       "cache": false,
-      "dependsOn": ["@monorepo/infra-local#infra:up"],
+      "dependsOn": ["@router/infra-local#infra:up"],
       "outputs": []
     },
     "db:push": {

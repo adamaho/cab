@@ -1,5 +1,5 @@
 {
-  "name": "@monorepo/tool-oxfmt-config",
+  "name": "@router/tool-oxfmt-config",
   "version": "0.0.0",
   "private": true,
   "type": "module",

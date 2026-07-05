@@ -1,4 +1,4 @@
-# @monorepo/tool-oxlint-config
+# @router/tool-oxlint-config
 
 Shared Oxlint configuration for this Turborepo.
 
@@ -9,7 +9,7 @@ Shared Oxlint configuration for this Turborepo.
 ```json
 {
   "devDependencies": {
-    "@monorepo/tool-oxlint-config": "workspace:*"
+    "@router/tool-oxlint-config": "workspace:*"
   }
 }
 ```

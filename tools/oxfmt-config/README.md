@@ -1,4 +1,4 @@
-# @monorepo/tool-oxfmt
+# @router/tool-oxfmt-config
 
 Shared Oxfmt configuration for this Turborepo.
 
@@ -9,7 +9,7 @@ Shared Oxfmt configuration for this Turborepo.
 ```json
 {
   "devDependencies": {
-    "@monorepo/tool-oxfmt": "workspace:*"
+    "@router/tool-oxfmt-config": "workspace:*"
   }
 }
 ```
@@ -19,13 +19,13 @@ Shared Oxfmt configuration for this Turborepo.
 ```json
 {
   "scripts": {
-    "fmt": "oxfmt --config ../../tools/oxfmt/src/base.json .",
-    "fmt:check": "oxfmt --check --config ../../tools/oxfmt/src/base.json ."
+    "fmt": "oxfmt --config ../../tools/oxfmt-config/src/base.json .",
+    "fmt:check": "oxfmt --check --config ../../tools/oxfmt-config/src/base.json ."
   }
 }
 ```
 
-Point to `tools/oxfmt/src/base.json` using the correct `../` depth for your
+Point to `tools/oxfmt-config/src/base.json` using the correct `../` depth for your
 workspace.
 
 Root format scripts reference this shared config path directly, so subsequent

@@ -1,14 +1,14 @@
-name: monorepo-local
+name: router-local
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: monorepo-local-postgres
+    container_name: router-local-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: monorepo
-      POSTGRES_USER: monorepo
-      POSTGRES_PASSWORD: monorepo
+      POSTGRES_DB: router
+      POSTGRES_USER: router
+      POSTGRES_PASSWORD: router
     ports:
       - "5432:5432"
     volumes:

@@ -1,5 +1,5 @@
 {
-  "name": "monorepo",
+  "name": "router",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
     "tsc": "turbo run tsc"
   },
   "devDependencies": {
-    "@monorepo/tool-oxfmt-config": "workspace:*",
+    "@router/tool-oxfmt-config": "workspace:*",
     "oxfmt": "catalog:",
     "rimraf": "catalog:",
     "turbo": "catalog:"

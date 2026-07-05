@@ -1,5 +1,5 @@
 {
-  description = "Development shell for the monorepo template";
+  description = "Development shell for router";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

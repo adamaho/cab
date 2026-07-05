@@ -32,7 +32,7 @@ importers:
 
   .:
     devDependencies:
-      '@monorepo/tool-oxfmt-config':
+      '@router/tool-oxfmt-config':
         specifier: workspace:*
         version: link:tools/oxfmt-config
       oxfmt:

@@ -26,7 +26,7 @@ This specification defines repository-wide naming conventions for:
 - pull request (PR) titles
 
 The goal is consistent history, clear release notes, and searchable intent
-across the monorepo.
+across the repository.
 
 #### 1.0 Normative Keywords (RFC 2119 style)
 
