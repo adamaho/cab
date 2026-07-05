@@ -128,3 +128,11 @@ through Nix explicitly:
 ```bash
 nix develop --command pnpm check
 ```
+
+Agent instructions live in `AGENTS.md`. Keep `CLAUDE.md` symlinked to
+`AGENTS.md` so `AGENTS.md` remains the source of truth for agent behavior.
+
+Agents should load and apply the `pid` skill before implementation, debugging,
+review, refactoring, scaffolding, package config, dependency, TypeScript, and
+test changes. Skip `pid` only for purely conversational answers, git-only commit
+or push tasks, or one-off shell queries that do not affect code correctness.
