@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2022",
+    "moduleDetection": "force",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noImplicitOverride": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
+  }
+}

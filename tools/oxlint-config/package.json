@@ -1,0 +1,17 @@
+{
+  "name": "@monorepo/tool-oxlint-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./base": "./src/base.json"
+  },
+  "scripts": {
+    "clean": "rimraf node_modules"
+  },
+  "devDependencies": {
+    "eslint-plugin-jsdoc": "catalog:",
+    "oxlint": "catalog:",
+    "rimraf": "catalog:"
+  }
+}

@@ -1,0 +1,96 @@
+name: assert-pr-title
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  assert-pr-title:
+    name: assert-pr-title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = context.payload.pull_request?.title ?? "";
+            const titlePattern = /^(feat|fix|docs|chore|refactor|test)\((ci|[a-z0-9]+(?:-[a-z0-9]+)*)\):\s\S.*$/;
+            const marker = "<!-- assert-pr-title -->";
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const invalidMessage = [
+              marker,
+              "### PR Title Invalid",
+              "",
+              `Current title: \`${title || "(empty)"}\``,
+              "",
+              "Please use: `<type>(<scope>): <description>`",
+              "",
+              "Allowed types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`.",
+              "Scope should be the package name without npm scope (lowercase kebab-case), or `ci`.",
+              "",
+              "Good examples:",
+              "- `feat(app-console): add dark mode support`",
+              "- `fix(lib-browser-feature-flags): handle missing cookie`",
+              "- `docs(service-api): clarify auth setup`",
+              "- `chore(ci): update workflow checks`",
+              "",
+              "Bad examples:",
+              "- `feat: add dark mode support`",
+              "- `feat(@org/app-console): add dark mode support`",
+              "- `updated stuff`"
+            ].join("\n");
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100
+            });
+
+            const managedComments = comments.filter(
+              (comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                comment.body?.includes(marker)
+            );
+
+            const isValid = titlePattern.test(title);
+
+            if (isValid) {
+              for (const comment of managedComments) {
+                await github.rest.issues.deleteComment({
+                  owner,
+                  repo,
+                  comment_id: comment.id
+                });
+              }
+              return;
+            }
+
+            if (managedComments.length === 0) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: invalidMessage
+              });
+            }
+
+            if (!isValid) {
+              core.setFailed([
+                `Invalid PR title: "${title}"`,
+                "Expected format: <type>(<scope>): <description>",
+                "Allowed types: feat, fix, docs, chore, refactor, test.",
+                "Scope must be the package name without npm scope and use lowercase kebab-case, or be ci.",
+                "Example: feat(app-console): add dark mode support"
+              ].join("\n"));
+            }

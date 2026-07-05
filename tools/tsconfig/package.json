@@ -1,0 +1,19 @@
+{
+  "name": "@monorepo/tool-tsconfig",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./base": "./src/base.json",
+    "./service": "./src/service.json",
+    "./app-vite": "./src/app-vite.json"
+  },
+  "scripts": {
+    "clean": "rimraf node_modules dist build .turbo coverage"
+  },
+  "devDependencies": {
+    "@effect/language-service": "catalog:",
+    "rimraf": "catalog:",
+    "typescript": "catalog:"
+  }
+}

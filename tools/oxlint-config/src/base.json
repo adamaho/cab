@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "typescript", "oxc", "unicorn"],
+  "jsPlugins": [
+    {
+      "name": "jsdoc-js",
+      "specifier": "eslint-plugin-jsdoc"
+    }
+  ],
+  "rules": {
+    "eslint/no-debugger": "error",
+    "eslint/no-duplicate-imports": "error",
+    "eslint/func-style": ["error", "declaration"],
+    "jsdoc-js/require-jsdoc": [
+      "error",
+      {
+        "contexts": ["FunctionDeclaration"]
+      }
+    ],
+    "jsdoc-js/require-description": "error",
+    "jsdoc-js/require-param": "error",
+    "jsdoc-js/require-param-description": "error",
+    "jsdoc-js/require-returns": "error",
+    "jsdoc-js/require-returns-description": "error",
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@effect/platform",
+            "message": "Use Effect v4 consolidated modules from `effect` (for example `effect/unstable/httpapi` or `effect/unstable/http`)."
+          },
+          {
+            "name": "@effect/sql",
+            "message": "Use `effect/unstable/sql` and driver-specific `@effect/sql-*` packages in Effect v4."
+          },
+          {
+            "name": "@effect/rpc",
+            "message": "Use `effect/unstable/rpc` in Effect v4."
+          },
+          {
+            "name": "@effect/cluster",
+            "message": "Use `effect/unstable/cluster` in Effect v4."
+          }
+        ],
+        "patterns": [
+          {
+            "group": ["@effect/platform/*", "@effect/sql/*", "@effect/rpc/*", "@effect/cluster/*"],
+            "message": "Do not import v3 split Effect packages. Use consolidated `effect` module imports in v4."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["**/*.{test,spec}.{js,jsx,ts,tsx}"],
+      "plugins": ["eslint", "typescript", "oxc", "unicorn", "vitest"]
+    }
+  ]
+}

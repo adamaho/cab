@@ -1,0 +1,164 @@
+name: pr
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Lint
+        run: pnpm turbo run lint
+
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Format check
+        run: pnpm run fmt:check
+
+  tsc:
+    name: tsc
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Typecheck
+        run: pnpm turbo run tsc
+
+  test-unit:
+    name: test-unit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Unit tests
+        run: pnpm turbo run test:unit
+
+  test-integration:
+    name: test-integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: agent
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Integration tests
+        env:
+          TEST_DATABASE_URL: postgresql://agent:agent@127.0.0.1:5432/agent
+        run: pnpm turbo run test:integration
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache turbo artifacts
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-${{ github.job }}-
+
+      - name: Setup pnpm and install
+        uses: ./.github/actions/setup-pnpm
+
+      - name: Build
+        run: pnpm turbo run build

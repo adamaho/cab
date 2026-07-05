@@ -1,0 +1,75 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "tsc": {
+      "dependsOn": ["transit"],
+      "outputs": []
+    },
+    "lint": {
+      "dependsOn": ["transit", "^lint"],
+      "outputs": []
+    },
+    "fmt": {
+      "outputs": []
+    },
+    "fmt:check": {
+      "outputs": []
+    },
+    "clean": {
+      "cache": false,
+      "outputs": []
+    },
+    "infra:up": {
+      "cache": false,
+      "outputs": []
+    },
+    "infra:down": {
+      "cache": false,
+      "outputs": []
+    },
+    "infra:logs": {
+      "cache": false,
+      "persistent": true,
+      "outputs": []
+    },
+    "infra:reset": {
+      "cache": false,
+      "outputs": []
+    },
+    "db:create": {
+      "cache": false,
+      "dependsOn": ["@monorepo/infra-local#infra:up"],
+      "outputs": []
+    },
+    "db:push": {
+      "cache": false,
+      "dependsOn": ["db:create"],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["transit" /* "db:push" */]
+    },
+    "test:unit": {
+      "dependsOn": ["transit"],
+      "outputs": []
+    },
+    "test:integration": {
+      "cache": false,
+      "dependsOn": ["transit", "db:create"],
+      "outputs": []
+    },
+    "test:component": {
+      "dependsOn": ["transit"],
+      "outputs": []
+    }
+  }
+}

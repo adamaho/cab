@@ -1,0 +1,25 @@
+{
+  "name": "monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "pnpm fmt:check && turbo run lint tsc",
+    "clean": "turbo run clean && rimraf node_modules",
+    "dev": "turbo run dev --ui=tui",
+    "lint": "turbo run lint",
+    "fmt": "oxfmt --config ./tools/oxfmt-config/src/base.json .",
+    "fmt:check": "oxfmt --check --config ./tools/oxfmt-config/src/base.json .",
+    "tsc": "turbo run tsc"
+  },
+  "devDependencies": {
+    "@monorepo/tool-oxfmt-config": "workspace:*",
+    "oxfmt": "catalog:",
+    "rimraf": "catalog:",
+    "turbo": "catalog:"
+  },
+  "engines": {
+    "node": "^24.15.0",
+    "pnpm": "^11.6.0"
+  },
+  "packageManager": "pnpm@11.6.0"
+}
