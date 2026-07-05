@@ -1,0 +1,27 @@
+{
+  "name": "@router/lib-router",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Browser routing library for router applications.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "clean": "rimraf node_modules dist build .turbo coverage tsconfig.tsbuildinfo",
+    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src",
+    "test:unit": "vitest run --passWithNoTests",
+    "tsc": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@router/tool-oxlint-config": "workspace:*",
+    "@router/tool-tsconfig": "workspace:*",
+    "oxlint": "catalog:",
+    "rimraf": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
