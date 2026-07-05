@@ -45,7 +45,7 @@
     },
     "db:create": {
       "cache": false,
-      "dependsOn": ["@router/infra-local#infra:up"],
+      "dependsOn": ["@cab/infra-local#infra:up"],
       "outputs": []
     },
     "db:push": {

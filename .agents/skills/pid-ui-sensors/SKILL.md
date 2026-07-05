@@ -110,7 +110,7 @@ Add browser-level sensors when the UI must be inspected in a running app:
 `pnpm turbo run test:integration` SHOULD run when the UI behavior depends on
 service boundaries, database state, local infrastructure, API contracts, or
 cross-package integration. It MAY require local infrastructure from
-`@router/infra-local`.
+`@cab/infra-local`.
 
 ## Sensor Access And Tooling
 

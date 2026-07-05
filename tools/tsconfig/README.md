@@ -1,11 +1,11 @@
-# @router/tool-tsconfig
+# @cab/tool-tsconfig
 
 Shared TypeScript configurations for this Turborepo.
 
 ## Exports
 
-- `@router/tool-tsconfig/base`: strict baseline compiler defaults.
-- `@router/tool-tsconfig/service`: NodeNext service defaults for backend workspaces.
+- `@cab/tool-tsconfig/base`: strict baseline compiler defaults.
+- `@cab/tool-tsconfig/service`: NodeNext service defaults for backend workspaces.
 
 ## Usage in a workspace package
 
@@ -14,7 +14,7 @@ Shared TypeScript configurations for this Turborepo.
 ```json
 {
   "devDependencies": {
-    "@router/tool-tsconfig": "workspace:*"
+    "@cab/tool-tsconfig": "workspace:*"
   }
 }
 ```
@@ -23,7 +23,7 @@ Shared TypeScript configurations for this Turborepo.
 
 ```json
 {
-  "extends": "@router/tool-tsconfig/service",
+  "extends": "@cab/tool-tsconfig/service",
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src"

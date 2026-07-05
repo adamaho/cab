@@ -1,14 +1,14 @@
-name: router-local
+name: cab-local
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: router-local-postgres
+    container_name: cab-local-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: router
-      POSTGRES_USER: router
-      POSTGRES_PASSWORD: router
+      POSTGRES_DB: cab
+      POSTGRES_USER: cab
+      POSTGRES_PASSWORD: cab
     ports:
       - "5432:5432"
     volumes:

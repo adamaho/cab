@@ -1,5 +1,5 @@
 {
-  "name": "router",
+  "name": "cab",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
     "tsc": "turbo run tsc"
   },
   "devDependencies": {
-    "@router/tool-oxfmt-config": "workspace:*",
+    "@cab/tool-oxfmt-config": "workspace:*",
     "oxfmt": "catalog:",
     "rimraf": "catalog:",
     "turbo": "catalog:"

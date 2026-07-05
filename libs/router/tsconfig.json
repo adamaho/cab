@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@router/tool-tsconfig/base",
+  "extends": "@cab/tool-tsconfig/base",
   "compilerOptions": {
     "module": "ESNext",
     "moduleResolution": "Bundler",

@@ -1,4 +1,4 @@
-# @router/tool-oxlint-config
+# @cab/tool-oxlint-config
 
 Shared Oxlint configuration for this Turborepo.
 
@@ -9,7 +9,7 @@ Shared Oxlint configuration for this Turborepo.
 ```json
 {
   "devDependencies": {
-    "@router/tool-oxlint-config": "workspace:*"
+    "@cab/tool-oxlint-config": "workspace:*"
   }
 }
 ```

@@ -1,4 +1,4 @@
-# @router/tool-oxfmt-config
+# @cab/tool-oxfmt-config
 
 Shared Oxfmt configuration for this Turborepo.
 
@@ -9,7 +9,7 @@ Shared Oxfmt configuration for this Turborepo.
 ```json
 {
   "devDependencies": {
-    "@router/tool-oxfmt-config": "workspace:*"
+    "@cab/tool-oxfmt-config": "workspace:*"
   }
 }
 ```

@@ -1,6 +1,6 @@
-# router
+# cab
 
-`router` is a workspace for building router services, applications, shared
+`cab` is a workspace for building cab services, applications, shared
 packages, and supporting tooling.
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow,

@@ -1,5 +1,5 @@
 {
-  "name": "@router/tool-tsconfig",
+  "name": "@cab/tool-tsconfig",
   "version": "0.0.0",
   "private": true,
   "type": "module",

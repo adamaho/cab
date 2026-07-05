@@ -1,5 +1,5 @@
 {
-  "name": "@router/tool-oxlint-config",
+  "name": "@cab/tool-oxlint-config",
   "version": "0.0.0",
   "private": true,
   "type": "module",

@@ -1,5 +1,5 @@
 {
-  description = "Development shell for router";
+  description = "Development shell for cab";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";

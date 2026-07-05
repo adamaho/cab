@@ -115,7 +115,7 @@ Use them this way:
 - `pnpm turbo run test:integration` SHOULD run when service boundaries,
   database behavior, local infrastructure, API contracts, or cross-package
   integration changed. It MAY require local infrastructure from
-  `@router/infra-local`.
+  `@cab/infra-local`.
 
 Focused sensors MAY be used during the loop to save time, such as
 `pnpm --filter=<package> run test:unit`, `pnpm --filter=<package> run lint`, or

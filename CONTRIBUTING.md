@@ -1,6 +1,6 @@
 # Contributing
 
-This repository contains the router workspace. Keep changes small, explicit,
+This repository contains the cab workspace. Keep changes small, explicit,
 and easy to review.
 
 ## Prerequisites
@@ -27,7 +27,7 @@ pnpm install
 Start local infrastructure when a package needs shared runtime services:
 
 ```bash
-pnpm --filter=@router/infra-local run infra:up
+pnpm --filter=@cab/infra-local run infra:up
 ```
 
 ## Verification
@@ -68,8 +68,8 @@ behavior in `features/*`, and move reusable primitives that are not tied to a
 feature into `libs/*`.
 
 Package names should use the repository npm scope and a clear package suffix,
-for example `@router/shell-web`, `@router/feature-billing`,
-`@router/service-api`, or `@router/lib-dates`.
+for example `@cab/shell-web`, `@cab/feature-billing`,
+`@cab/service-api`, or `@cab/lib-dates`.
 
 ## Dependency Management
 
@@ -102,12 +102,12 @@ Allowed types:
 - `test`
 
 Use the affected package name without the npm scope as the commit scope. For
-root-only repository changes, use `router`.
+root-only repository changes, use `cab`.
 
 Examples:
 
 ```text
-chore(router): add contributor documentation
+chore(cab): add contributor documentation
 feat(shell-web): add account settings page
 fix(service-api): validate missing request body
 ```
