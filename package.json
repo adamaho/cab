@@ -9,6 +9,7 @@
     "lint": "turbo run lint",
     "fmt": "oxfmt --config ./tools/oxfmt-config/src/base.json .",
     "fmt:check": "oxfmt --check --config ./tools/oxfmt-config/src/base.json .",
+    "test:unit": "turbo run test:unit",
     "tsc": "turbo run tsc"
   },
   "devDependencies": {

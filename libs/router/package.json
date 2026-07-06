@@ -9,8 +9,8 @@
   },
   "scripts": {
     "clean": "rimraf node_modules dist build .turbo coverage tsconfig.tsbuildinfo",
-    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src",
-    "test:unit": "vitest run --passWithNoTests",
+    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src test vitest.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts --passWithNoTests",
     "tsc": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
   "devDependencies": {
     "@cab/tool-oxlint-config": "workspace:*",
     "@cab/tool-tsconfig": "workspace:*",
+    "@effect/vitest": "catalog:",
     "oxlint": "catalog:",
     "rimraf": "catalog:",
     "typescript": "catalog:",

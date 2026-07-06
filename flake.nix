@@ -30,6 +30,10 @@
               nodejs_24
               pnpm_11
             ];
+
+            shellHook = ''
+              alias opencode-p='XDG_DATA_HOME="$HOME/.local/share/opencode-personal-profile" opencode'
+            '';
           };
         });
     };
