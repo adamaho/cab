@@ -99,19 +99,18 @@ export const MemoryHistory: {
   readonly make: (initialHref: string) => Effect.Effect<MemoryHistory>;
 } = {
   make: Effect.fn("@cab/router/MemoryHistory.make")(function* (initialHref: string) {
-    const currentRef = yield* Ref.make(initialHref);
     const pushesRef = yield* Ref.make<ReadonlyArray<string>>([]);
+    const current = Ref.get(pushesRef).pipe(Effect.map((pushes) => pushes.at(-1) ?? initialHref));
 
     return {
       layer: Layer.succeed(History, {
         push: Effect.fn("@cab/router/MemoryHistory.push")(function* (href: string) {
           yield* Ref.update(pushesRef, (pushes) => [...pushes, href]);
-          yield* Ref.set(currentRef, href);
         }),
-        current: Ref.get(currentRef),
+        current,
       }),
       pushes: Ref.get(pushesRef),
-      current: Ref.get(currentRef),
+      current,
     };
   }),
 };
