@@ -78,6 +78,49 @@ when it improves scanning. Prefer short section names such as `State`,
 `Component`, `Styles`, `Helpers`, or `Types`, and keep file-local styles near
 the bottom of the file unless an existing pattern says otherwise.
 
+## Code Documentation
+
+Document public exports with Effect-style JSDoc. Public exports include types,
+interfaces, classes, services, functions, layers, atoms, constants, and tagged
+enum constructor bundles that are re-exported from a package entrypoint.
+
+Use this shape for public APIs:
+
+```ts
+/**
+ * One-sentence summary in plain language.
+ *
+ * **When to use**
+ *
+ * Explain when callers should reach for this API when that is not obvious from
+ * the name.
+ *
+ * **Details**
+ *
+ * Document important semantics, invariants, failure behavior, and lifecycle
+ * rules.
+ *
+ * @see {@link relatedApi} for related behavior
+ * @category category-name
+ * @since 0.0.0
+ */
+export function publicApi() {}
+```
+
+Rules:
+
+- Keep the opening summary short and useful in generated API docs.
+- Add `**When to use**`, `**Details**`, `**Example**`, `**Gotchas**`, or `@see`
+  only when they add information a caller needs.
+- Include `@category` for public package APIs so generated docs group related
+  exports consistently.
+- Include `@since` on public package APIs. Use the package version where the API
+  first appears; for initial private packages, use `@since 0.0.0`.
+- Prefer documenting observable behavior and invariants over implementation
+  details.
+- Do not add noisy JSDoc to file-local helpers unless the helper is subtle and a
+  short comment would prevent misuse.
+
 ## Dependency Management
 
 Prefer centralizing shared dependency versions in `pnpm-workspace.yaml` using

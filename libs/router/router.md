@@ -164,8 +164,8 @@ export const RouterEvent: /* Data.taggedEnum<RouterEvent>() constructors + $matc
 export interface RouterState {
   readonly href: string
 }
-export const initial: (href: string) => RouterState
-export const reduce: (state: RouterState, event: RouterEvent) => RouterState
+export function initial(href: string): RouterState
+export function reduce(state: RouterState, event: RouterEvent): RouterState
 
 // history.ts
 export class HistoryError extends Data.TaggedError("HistoryError")<{
