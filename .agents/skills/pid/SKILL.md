@@ -185,6 +185,22 @@ Instead:
 Repeat until the measured error is zero or the remaining uncertainty is clearly
 identified.
 
+### 6. Audit The Final State
+
+After the setpoint is reached, audit only the changes made during this loop for
+residue that mechanical sensors cannot prove.
+
+Check for:
+
+- duplicate logic
+- redundant branches, guards, or fallback behavior
+- unnecessary new abstractions
+- temporary logs, comments, flags, or debugging code
+- tests that assert implementation details instead of behavior
+
+Remove only task-local residue. Do not refactor unrelated code or broaden the
+scope after the setpoint is reached. Re-run the relevant sensors after cleanup.
+
 ## Stability Rules
 
 - Treat vague instructions as low signal, not permission for broad changes.
@@ -237,6 +253,9 @@ Workflow:
 4. Make the patch.
 5. Run the selected sensors.
 6. If a sensor fails, patch only against that error signal and re-run it.
+7. Once sensors pass, audit only the changes made during the loop for duplicate
+   or unnecessary code that mechanical sensors cannot prove, remove only
+   task-local residue, and re-run relevant sensors.
 
 Do not:
 - Rewrite unrelated files.
