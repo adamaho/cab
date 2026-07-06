@@ -7,11 +7,12 @@
   "scripts": {
     "build": "vite build",
     "clean": "rimraf node_modules dist build .turbo tsconfig.tsbuildinfo",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite",
     "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src vite.config.ts",
     "tsc": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cab/router": "workspace:*",
     "@effect/atom-solid": "catalog:",
     "@stylexjs/stylex": "catalog:",
     "effect": "catalog:",

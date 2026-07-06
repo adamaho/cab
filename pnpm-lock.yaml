@@ -101,6 +101,9 @@ importers:
 
   shells/playground:
     dependencies:
+      '@cab/router':
+        specifier: workspace:*
+        version: link:../../libs/router
       '@effect/atom-solid':
         specifier: 'catalog:'
         version: 4.0.0-beta.93(effect@4.0.0-beta.93)(solid-js@1.9.14)
