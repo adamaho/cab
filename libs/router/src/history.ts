@@ -1,13 +1,21 @@
 import { Context, Data, Effect, Layer, Ref } from "effect";
 
 /**
+ * Machine-readable reasons for history service failures.
+ *
+ * @category errors
+ * @since 0.0.0
+ */
+export type HistoryErrorReason = "window-unavailable" | "push-failed";
+
+/**
  * Typed history failures surfaced by router history services.
  *
  * @category errors
  * @since 0.0.0
  */
 export class HistoryError extends Data.TaggedError("HistoryError")<{
-  readonly reason: "window-unavailable" | "push-failed";
+  readonly reason: HistoryErrorReason;
   readonly cause?: unknown;
 }> {}
 
@@ -70,7 +78,7 @@ export const WindowHistory: {
 };
 
 /**
- * Test-support memory history handle with inspection effects.
+ * Memory history handle with inspection effects.
  *
  * @category models
  * @since 0.0.0

@@ -168,8 +168,9 @@ export function initial(href: string): RouterState
 export function reduce(state: RouterState, event: RouterEvent): RouterState
 
 // history.ts
+export type HistoryErrorReason = "window-unavailable" | "push-failed"
 export class HistoryError extends Data.TaggedError("HistoryError")<{
-  readonly reason: "window-unavailable" | "push-failed"
+  readonly reason: HistoryErrorReason
   readonly cause?: unknown
 }> {}
 
