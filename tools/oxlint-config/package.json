@@ -10,7 +10,6 @@
     "clean": "rimraf node_modules"
   },
   "devDependencies": {
-    "eslint-plugin-jsdoc": "catalog:",
     "oxlint": "catalog:",
     "rimraf": "catalog:"
   }

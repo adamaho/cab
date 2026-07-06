@@ -1,27 +1,16 @@
 {
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
   "plugins": ["eslint", "typescript", "oxc", "unicorn"],
-  "jsPlugins": [
-    {
-      "name": "jsdoc-js",
-      "specifier": "eslint-plugin-jsdoc"
-    }
-  ],
   "rules": {
     "eslint/no-debugger": "error",
     "eslint/no-duplicate-imports": "error",
     "eslint/func-style": ["error", "declaration"],
-    "jsdoc-js/require-jsdoc": [
+    "unicorn/filename-case": [
       "error",
       {
-        "contexts": ["FunctionDeclaration"]
+        "case": "kebabCase"
       }
     ],
-    "jsdoc-js/require-description": "error",
-    "jsdoc-js/require-param": "error",
-    "jsdoc-js/require-param-description": "error",
-    "jsdoc-js/require-returns": "error",
-    "jsdoc-js/require-returns-description": "error",
     "eslint/no-restricted-imports": [
       "error",
       {
