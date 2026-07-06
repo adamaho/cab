@@ -1,5 +1,5 @@
 {
-  "name": "@cab/lib-router",
+  "name": "@cab/router",
   "version": "0.0.0",
   "private": true,
   "description": "Browser routing library for cab applications.",

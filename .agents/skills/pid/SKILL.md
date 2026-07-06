@@ -270,6 +270,8 @@ When finishing coding work, report:
 
 - the setpoint that was targeted
 - the files changed and the function signatures in the file that changed
+- when test files are present, enumerate each test file with its section or
+  `describe` names and every test case name
 - the sensors run and their results
 - any remaining risk, missing sensor, or validation that could not be run
 

@@ -1,4 +1,4 @@
-# @cab/lib-router — Design & Implementation Plan
+# @cab/router — Design & Implementation Plan
 
 Event-sourced SPA router built on Effect. This document is the handoff source
 of truth: setpoint, research findings, architecture, public contract, and the
@@ -33,7 +33,7 @@ fold(initial, journal) === currentState
   package). `@effect/atom-solid` is only the Solid bindings and belongs in
   shells, not in this lib.
 - Verified idioms in this beta (all checked against installed `.d.ts`):
-  - Services: `class Router extends Context.Service<Router, Shape>()("@cab/lib-router/Router") {}`
+  - Services: `class Router extends Context.Service<Router, Shape>()("@cab/router/Router") {}`
   - Errors: `class HistoryError extends Data.TaggedError("HistoryError")<{ ... }> {}`
   - Events: `Data.taggedEnum<RouterEvent>()` (gives constructors + `$match`)
   - Functions: `Effect.gen`, `Effect.fn` (traced) exist
@@ -113,7 +113,7 @@ libs/router/src/
   event.ts     RouterCommand + RouterEvent tagged enums
   state.ts     RouterState + initial() + reduce()      ← pure, no Effect imports
   history.ts   History service: push(href) + current
-               layerWindow (real pushState) / MemoryHistory.make (tests)
+               WindowHistory.layer / MemoryHistory.make
   router.ts    Router service + layer: serialized dispatch + Ref<journal>
                + SubscriptionRef<state>
   atoms.ts     Atom bindings: runtime atom, state atom, navigate fn atom
@@ -124,8 +124,8 @@ libs/router/src/
 Framework adapter story (nothing to build now):
 
 ```
-@tanstack/history       ≈  History service (layerWindow / layerMemory)
-@tanstack/router-core   ≈  @cab/lib-router (only dep: effect)
+@tanstack/history       ≈  History service (WindowHistory.layer / MemoryHistory.make)
+@tanstack/router-core   ≈  @cab/router (only dep: effect)
 @tanstack/react-router  ≈  @effect/atom-solid consuming our atoms (exists)
 ```
 
@@ -178,20 +178,20 @@ export interface HistoryShape {
   readonly current: Effect.Effect<string, HistoryError>
 }
 export class History extends Context.Service<History, HistoryShape>()(
-  "@cab/lib-router/History"
+  "@cab/router/History"
 ) {}
-export const layerWindow: Layer.Layer<History>
+export const WindowHistory: {
+  readonly layer: Layer.Layer<History, HistoryError>
+}
 
-export interface MemoryHistoryShape {
+export interface MemoryHistory {
   readonly layer: Layer.Layer<History>
   readonly pushes: Effect.Effect<ReadonlyArray<string>>
   readonly current: Effect.Effect<string>
 }
-export class MemoryHistory extends Context.Service<
-  MemoryHistory,
-  { readonly make: (initialHref: string) => Effect.Effect<MemoryHistoryShape> }
->()("@cab/lib-router/MemoryHistory") {}
-export const MemoryHistoryLive: Layer.Layer<MemoryHistory>
+export const MemoryHistory: {
+  readonly make: (initialHref: string) => Effect.Effect<MemoryHistory>
+}
 
 // router.ts
 export interface RouterShape {
@@ -203,15 +203,16 @@ export interface RouterShape {
   readonly events: Effect.Effect<ReadonlyArray<RouterEvent>>   // journal read
 }
 export class Router extends Context.Service<Router, RouterShape>()(
-  "@cab/lib-router/Router"
-) {}
-export const layer: Layer.Layer<Router, HistoryError, History>
-export const layerBrowser: Layer.Layer<Router, HistoryError>   // layer + layerWindow
+  "@cab/router/Router"
+) {
+  static readonly layer: Layer.Layer<Router, HistoryError, History>
+  static readonly layerBrowser: Layer.Layer<Router, HistoryError> // layer + WindowHistory.layer
+}
 
 // atoms.ts
 // The Atom suffix is intentional public API: these exports are UI-reactivity
 // primitives, not plain service values or functions.
-export const routerRuntimeAtom  // Atom.runtime(layerBrowser); exact type verified in step 4
+export const routerRuntimeAtom  // Atom.runtime(Router.layerBrowser); exact type verified in step 4
 export const routerStateAtom    // derived Atom for RouterState; exact type verified in step 4
 export const routerNavigateAtom // Atom.fn accepting href string; runs Router.navigate
 
@@ -232,7 +233,7 @@ Service-level Effect usage:
 
 ```ts
 import { Effect } from "effect";
-import { Router, layerBrowser } from "@cab/lib-router";
+import { Router } from "@cab/router";
 
 const program = Effect.gen(function* () {
   const router = yield* Router;
@@ -240,14 +241,14 @@ const program = Effect.gen(function* () {
   return yield* router.state;
 });
 
-const state = await Effect.runPromise(Effect.provide(program, layerBrowser));
+const state = await Effect.runPromise(Effect.provide(program, Router.layerBrowser));
 ```
 
 UI adapter usage imports the Atom-facing names and consumes them through the
 framework binding, for example `@effect/atom-solid` in Solid shells:
 
 ```ts
-import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/lib-router";
+import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/router";
 ```
 
 ## Semantics (these become the tests)
@@ -275,7 +276,7 @@ import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/lib
 8. `layer` seeds initial state from `History.current` at construction.
 9. `changes` emits the seeded state then one update per committed navigation
    that changes the projection.
-10. `layerWindow` fails with `HistoryError{ reason: "window-unavailable" }`
+10. `WindowHistory.layer` fails with `HistoryError{ reason: "window-unavailable" }`
     when `window` is not available during layer construction; push failures are
     captured as `NavigationFailed` events with
     `HistoryError{ reason: "push-failed", cause }` data.
@@ -294,11 +295,11 @@ tests. No Effect imports in `state.ts`. Sensors: focused lint/tsc/test:unit
 for the package.
 
 **Step 2 — History service.** `history.ts` + `test/history.test.ts`.
-`HistoryError`, `History` service, `layerWindow`, `MemoryHistory` service, and
-`MemoryHistoryLive`. `MemoryHistory.make(initialHref)` returns a layer plus
-inspection effects for `pushes` and `current`. Tests run against
-`MemoryHistory.make` and assert memory behavior; no DOM, no mocks of internals.
-Sensors: focused lint/tsc/test:unit.
+`HistoryError`, `History` service, `WindowHistory.layer`, and direct
+`MemoryHistory.make(initialHref)` factory. `MemoryHistory.make(initialHref)`
+returns a layer plus inspection effects for `pushes` and `current`. Tests run
+against `MemoryHistory.make` and assert memory behavior; no DOM, no mocks of
+internals. Sensors: focused lint/tsc/test:unit.
 
 **Step 3 — Router service.** `router.ts` + `test/router.test.ts`.
 Journal `Ref<ReadonlyArray<RouterEvent>>`, projection
@@ -312,7 +313,7 @@ semantics 1–11 (replay invariant is the centerpiece). Sensors: focused
 lint/tsc/test:unit.
 
 **Step 4 — Atom bindings + public surface.** `atoms.ts` + `index.ts`.
-`Atom.runtime(layerBrowser)`, state atom from `changes`/`state`, navigate
+`Atom.runtime(Router.layerBrowser)`, state atom from `changes`/`state`, navigate
 via `Atom.fn` exported as `routerNavigateAtom`. Verify `Atom.runtime`,
 derived-atom, and `Atom.fn` signatures in
 `node_modules/effect/dist/unstable/reactivity/Atom.d.ts` before writing.
@@ -334,9 +335,9 @@ package name without the npm scope; see `CONTRIBUTING.md`).
 Focused (during a step):
 
 ```bash
-pnpm --filter=@cab/lib-router run lint
-pnpm --filter=@cab/lib-router run tsc
-pnpm --filter=@cab/lib-router run test:unit
+pnpm --filter=@cab/router run lint
+pnpm --filter=@cab/router run tsc
+pnpm --filter=@cab/router run test:unit
 ```
 
 Repo-wide (before completing a step / committing):
@@ -353,7 +354,7 @@ signal, re-run. No broad rewrites as a first corrective action.
 - **`RouterEvent` union** grows: replace request/commit/fail events, external
   location changes (`popstate` → `ExternalLocationChanged` appended through the
   same journal — the single-funnel translation), redirects.
-- **`HistoryShape`** and `MemoryHistoryShape` grow together: `replace`,
+- **`HistoryShape`** and `MemoryHistory` grow together: `replace`,
   `subscribe`/change stream for external changes, `go/back/forward`.
 - **Derived location parsing**: `pathname`/`search`/`hash` as derived atoms
   parsing `state.href` (solid-router's derived-memo approach) — nothing
