@@ -64,6 +64,7 @@
     },
     "test:integration": {
       "cache": false,
+      "env": ["DATABASE_URL"],
       "dependsOn": ["transit", "db:create"],
       "outputs": []
     },
