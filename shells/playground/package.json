@@ -1,0 +1,28 @@
+{
+  "name": "@cab/shell-playground",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Minimal Solid playground shell for cab.",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "clean": "rimraf node_modules dist build .turbo tsconfig.tsbuildinfo",
+    "dev": "vite --host 0.0.0.0",
+    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src vite.config.ts",
+    "tsc": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@effect/atom-solid": "catalog:",
+    "effect": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@cab/tool-oxlint-config": "workspace:*",
+    "@cab/tool-tsconfig": "workspace:*",
+    "oxlint": "catalog:",
+    "rimraf": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:"
+  }
+}

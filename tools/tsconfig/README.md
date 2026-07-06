@@ -6,6 +6,8 @@ Shared TypeScript configurations for this Turborepo.
 
 - `@cab/tool-tsconfig/base`: strict baseline compiler defaults.
 - `@cab/tool-tsconfig/service`: NodeNext service defaults for backend workspaces.
+- `@cab/tool-tsconfig/app-vite-react`: Vite app defaults for React workspaces.
+- `@cab/tool-tsconfig/app-vite-solid`: Vite app defaults for Solid workspaces.
 
 ## Usage in a workspace package
 

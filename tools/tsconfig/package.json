@@ -6,7 +6,8 @@
   "exports": {
     "./base": "./src/base.json",
     "./service": "./src/service.json",
-    "./app-vite": "./src/app-vite.json"
+    "./app-vite-react": "./src/app-vite-react.json",
+    "./app-vite-solid": "./src/app-vite-solid.json"
   },
   "scripts": {
     "clean": "rimraf node_modules dist build .turbo coverage"
