@@ -1,7 +1,7 @@
 import { render } from "solid-js/web";
 
 import { App } from "./app";
-import "./styles.css";
+import "./styles/global.css";
 
 const root = document.querySelector("#root");
 

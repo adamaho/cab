@@ -71,6 +71,13 @@ Package names should use the repository npm scope and a clear package suffix,
 for example `@cab/shell-web`, `@cab/feature-billing`,
 `@cab/service-api`, or `@cab/lib-dates`.
 
+## Code Organization
+
+Use simple fence comments to divide larger source files into logical sections
+when it improves scanning. Prefer short section names such as `State`,
+`Component`, `Styles`, `Helpers`, or `Types`, and keep file-local styles near
+the bottom of the file unless an existing pattern says otherwise.
+
 ## Dependency Management
 
 Prefer centralizing shared dependency versions in `pnpm-workspace.yaml` using
