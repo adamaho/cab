@@ -63,7 +63,7 @@ pnpm --filter=@cab/shell-playground add @cab/router@workspace:*
 For Solid UI bindings, add the Solid atom adapter in the shell package:
 
 ```bash
-pnpm --filter=@cab/shell-playground add @effect/atom-solid@catalog:
+pnpm --filter=@cab/shell-playground add @cab/router-solid@workspace:*
 ```
 
 `@cab/router` depends on `effect`, which is managed through the workspace
@@ -216,36 +216,39 @@ feedback loops.
 
 ## Solid Usage
 
-`@cab/router` exports framework-agnostic Effect atoms:
-
-```ts
-import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/router";
-```
-
-Solid shells can consume those atoms with `@effect/atom-solid`:
+`@cab/router` is framework-agnostic and exports no reactivity bindings.
+Solid applications should use the `@cab/router-solid` adapter, which owns all
+atom construction and exposes `createBrowserRouter`, `RouterProvider`, and
+hooks:
 
 ```tsx
-import { RegistryProvider, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-solid";
-import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/router";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  useRouterNavigate,
+  useRouterState,
+} from "@cab/router-solid";
+import { RegistryProvider } from "@effect/atom-solid";
+
+const router = createBrowserRouter();
 
 export function App() {
   return (
     <RegistryProvider>
-      <Routes />
+      <RouterProvider router={router}>
+        <Routes />
+      </RouterProvider>
     </RegistryProvider>
   );
 }
 
 function Routes() {
-  useAtomMount(() => routerRuntimeAtom);
-
-  const state = useAtomValue(() => routerStateAtom);
-  const navigate = useAtomSet(() => routerNavigateAtom);
+  const state = useRouterState();
+  const navigate = useRouterNavigate();
 
   return (
     <main>
-      <p>Current href: {AsyncResult.isSuccess(state()) ? state().value.href : "loading..."}</p>
+      <p>Current href: {state().href}</p>
       <button onClick={() => navigate("/settings")} type="button">
         Settings
       </button>
@@ -253,10 +256,6 @@ function Routes() {
   );
 }
 ```
-
-`routerStateAtom` is backed by a long-lived stream. Treat
-`AsyncResult.isSuccess(state())` as the signal that router state is available.
-Do not use the `waiting` flag as a loading indicator for router state.
 
 ## Testing With Memory History
 

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@cab/router": "workspace:*",
+    "@cab/router-solid": "workspace:*",
     "@effect/atom-solid": "catalog:",
     "@stylexjs/stylex": "catalog:",
     "effect": "catalog:",

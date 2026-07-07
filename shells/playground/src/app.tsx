@@ -1,15 +1,13 @@
-import { RegistryProvider, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-solid";
+import { RouterCommand } from "@cab/router";
 import {
-  Router,
-  RouterCommand,
-  routerNavigateAtom,
-  routerRuntimeAtom,
-  routerStateAtom,
-  type RouterState,
-} from "@cab/router";
+  createBrowserRouter,
+  RouterProvider,
+  useRouterDispatch,
+  useRouterNavigate,
+  useRouterState,
+} from "@cab/router-solid";
+import { RegistryProvider } from "@effect/atom-solid";
 import * as stylex from "@stylexjs/stylex";
-import { Cause, Effect, Stream } from "effect";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { For } from "solid-js";
 
 // -----------------------------------------------------------------------------
@@ -22,39 +20,9 @@ const routes = [
   { href: "/billing", label: "Billing" },
 ] as const;
 
-const logJournalChangesAtom = routerRuntimeAtom.atom(
-  Stream.unwrap(
-    Effect.gen(function* () {
-      const router = yield* Router;
-      return router.journalChanges.pipe(
-        Stream.tap((event) => Effect.sync(() => console.log("[router:event]", event))),
-      );
-    }),
-  ),
-);
-
-const dispatchNavigationAtom = routerRuntimeAtom.fn<string>()((href: string) =>
-  Effect.gen(function* () {
-    const router = yield* Router;
-    yield* router.dispatch(RouterCommand.NavigationRequested({ href }));
-  }),
-);
-
-function hrefFrom(result: AsyncResult.AsyncResult<RouterState, unknown>) {
-  return AsyncResult.isSuccess(result) ? result.value.href : "loading...";
-}
-
-function statusFrom(result: AsyncResult.AsyncResult<RouterState, unknown>) {
-  if (AsyncResult.isSuccess(result)) {
-    return "Router state is live.";
-  }
-
-  if (AsyncResult.isFailure(result)) {
-    return Cause.pretty(result.cause);
-  }
-
-  return "Starting router runtime...";
-}
+const router = createBrowserRouter({
+  onEvent: (event) => console.log("[router:event]", event),
+});
 
 // -----------------------------------------------------------------------------
 // Component
@@ -63,18 +31,17 @@ function statusFrom(result: AsyncResult.AsyncResult<RouterState, unknown>) {
 export function App() {
   return (
     <RegistryProvider>
-      <RouterDemo />
+      <RouterProvider router={router}>
+        <RouterDemo />
+      </RouterProvider>
     </RegistryProvider>
   );
 }
 
 function RouterDemo() {
-  useAtomMount(() => routerRuntimeAtom);
-  useAtomMount(() => logJournalChangesAtom);
-
-  const state = useAtomValue(() => routerStateAtom);
-  const navigate = useAtomSet(() => routerNavigateAtom);
-  const dispatchNavigation = useAtomSet(() => dispatchNavigationAtom);
+  const state = useRouterState();
+  const navigate = useRouterNavigate();
+  const dispatch = useRouterDispatch();
 
   return (
     <main {...stylex.attrs(styles.shell)} aria-labelledby="playground-title">
@@ -84,27 +51,26 @@ function RouterDemo() {
           Router playground
         </h1>
         <p {...stylex.attrs(styles.description)}>
-          Programmatic navigation wired through @cab/router, Effect atoms, and
-          window.history.pushState.
+          Navigation wired through @cab/router-solid: RouterProvider, useRouterState,
+          useRouterNavigate, and useRouterDispatch over the @cab/router core service.
         </p>
 
         <div {...stylex.attrs(styles.panel)} aria-live="polite">
           <span {...stylex.attrs(styles.panelLabel)}>Current href</span>
-          <strong {...stylex.attrs(styles.hrefValue)}>{hrefFrom(state())}</strong>
-          <p {...stylex.attrs(styles.status)}>{statusFrom(state())}</p>
+          <strong {...stylex.attrs(styles.hrefValue)}>{state().href}</strong>
         </div>
 
         <div {...stylex.attrs(styles.routeControls)}>
-          <span {...stylex.attrs(styles.routeGroupLabel)}>navigate(href)</span>
+          <span {...stylex.attrs(styles.routeGroupLabel)}>useRouterNavigate()(href)</span>
           <nav {...stylex.attrs(styles.nav)} aria-label="Playground routes using navigate">
             <For each={routes}>
               {(route) => (
                 <button
                   {...stylex.attrs(
                     styles.navButton,
-                    hrefFrom(state()) === route.href && styles.navButtonActive,
+                    state().href === route.href && styles.navButtonActive,
                   )}
-                  aria-current={hrefFrom(state()) === route.href ? "page" : undefined}
+                  aria-current={state().href === route.href ? "page" : undefined}
                   onClick={() => navigate(route.href)}
                   type="button"
                 >
@@ -114,17 +80,17 @@ function RouterDemo() {
             </For>
           </nav>
 
-          <span {...stylex.attrs(styles.routeGroupLabel)}>dispatch(command)</span>
+          <span {...stylex.attrs(styles.routeGroupLabel)}>useRouterDispatch()(command)</span>
           <nav {...stylex.attrs(styles.nav)} aria-label="Playground routes using dispatch">
             <For each={routes}>
               {(route) => (
                 <button
                   {...stylex.attrs(
                     styles.navButton,
-                    hrefFrom(state()) === route.href && styles.navButtonActive,
+                    state().href === route.href && styles.navButtonActive,
                   )}
-                  aria-current={hrefFrom(state()) === route.href ? "page" : undefined}
-                  onClick={() => dispatchNavigation(route.href)}
+                  aria-current={state().href === route.href ? "page" : undefined}
+                  onClick={() => dispatch(RouterCommand.NavigationRequested({ href: route.href }))}
                   type="button"
                 >
                   {route.label}
