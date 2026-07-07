@@ -25,9 +25,9 @@ export function initial(href: string): RouterState {
  *
  * **Details**
  *
- * Only `NavigationCommitted` changes the current href. Requested and failed
- * events are retained in the journal for observability but leave projected
- * state unchanged.
+ * `NavigationCommitted` and `NavigationObserved` change the current href.
+ * Requested and failed events are retained in the journal for observability but
+ * leave projected state unchanged.
  *
  * @category reducers
  * @since 0.0.0
@@ -38,6 +38,7 @@ export function reduce(state: RouterState, event: RouterEvent): RouterState {
     case "NavigationFailed":
       return state;
     case "NavigationCommitted":
+    case "NavigationObserved":
       return { href: event.href };
   }
 }

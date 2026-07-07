@@ -34,18 +34,29 @@ describe("router state", () => {
       href: "/settings",
     });
 
+    expect(
+      RouterEvent.NavigationObserved({
+        sequence: 2,
+        href: "/account",
+      }),
+    ).toEqual({
+      _tag: "NavigationObserved",
+      sequence: 2,
+      href: "/account",
+    });
+
     const cause = new Error("push failed");
 
     expect(
       RouterEvent.NavigationFailed({
-        sequence: 2,
+        sequence: 3,
         href: "/settings",
         reason: "push-failed",
         cause,
       }),
     ).toEqual({
       _tag: "NavigationFailed",
-      sequence: 2,
+      sequence: 3,
       href: "/settings",
       reason: "push-failed",
       cause,
@@ -56,7 +67,7 @@ describe("router state", () => {
     expect(initial("/")).toEqual({ href: "/" });
   });
 
-  it("only changes state for committed navigation events", () => {
+  it("only changes state for committed or observed navigation events", () => {
     const state = initial("/");
 
     expect(
@@ -89,6 +100,16 @@ describe("router state", () => {
         }),
       ),
     ).toEqual({ href: "/settings" });
+
+    expect(
+      reduce(
+        state,
+        RouterEvent.NavigationObserved({
+          sequence: 3,
+          href: "/account",
+        }),
+      ),
+    ).toEqual({ href: "/account" });
   });
 
   it("folds events into the current state projection", () => {
@@ -101,8 +122,9 @@ describe("router state", () => {
         href: "/billing",
         reason: "push-failed",
       }),
+      RouterEvent.NavigationObserved({ sequence: 4, href: "/account" }),
     ];
 
-    expect(events.reduce(reduce, initial("/"))).toEqual({ href: "/settings" });
+    expect(events.reduce(reduce, initial("/"))).toEqual({ href: "/account" });
   });
 });

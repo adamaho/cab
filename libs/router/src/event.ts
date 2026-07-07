@@ -32,8 +32,10 @@ export const RouterCommand = Data.taggedEnum<RouterCommand>();
  * **Details**
  *
  * `NavigationRequested` records caller intent, `NavigationCommitted` records a
- * successful history mutation, and `NavigationFailed` records a failed history
- * mutation. Router state is derived only by folding committed events.
+ * successful history mutation, `NavigationObserved` records an external
+ * committed navigation, and `NavigationFailed` records a failed history
+ * mutation. Router state is derived only by folding committed and observed
+ * events.
  *
  * @see {@link RouterCommand} for user-originated navigation inputs
  * @category models
@@ -45,6 +47,10 @@ export type RouterEvent = Data.TaggedEnum<{
     readonly href: string;
   };
   NavigationCommitted: {
+    readonly sequence: number;
+    readonly href: string;
+  };
+  NavigationObserved: {
     readonly sequence: number;
     readonly href: string;
   };

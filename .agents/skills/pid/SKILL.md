@@ -269,6 +269,7 @@ Do not:
 When finishing coding work, report:
 
 - the setpoint that was targeted
+- why the change was made and the problem it solves
 - the files changed and the function signatures in the file that changed
 - when test files are present, enumerate each test file with its section or
   `describe` names and every test case name

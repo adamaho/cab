@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect } from "effect";
+import { Cause, Deferred, Effect, Fiber, Stream } from "effect";
 
 import { History, HistoryError, MemoryHistory, WindowHistory } from "../src/history";
 
@@ -12,6 +12,7 @@ describe("history", () => {
         const history = yield* History;
 
         expect(yield* history.current).toBe("/");
+        expect(yield* history.changes.pipe(Stream.take(0), Stream.runCollect)).toEqual([]);
 
         yield* history.push("/settings?tab=profile#details");
 
@@ -40,6 +41,41 @@ describe("history", () => {
 
       expect(yield* memory.current).toBe("/b");
       expect(yield* memory.pushes).toEqual(["/a", "/b"]);
+    }),
+  );
+
+  it.effect("streams memory observations without treating pushes as changes", () =>
+    Effect.gen(function* () {
+      const memory = yield* MemoryHistory.make("/");
+
+      const result = yield* Effect.provide(
+        Effect.gen(function* () {
+          const history = yield* History;
+          const ready = yield* Deferred.make<void>();
+          const fiber = yield* history.changes.pipe(
+            Stream.onStart(Deferred.succeed(ready, undefined)),
+            Stream.take(1),
+            Stream.runCollect,
+            Effect.forkChild,
+          );
+
+          yield* Deferred.await(ready);
+          yield* Effect.yieldNow;
+          yield* history.push("/pushed");
+          yield* memory.observe("/observed");
+
+          return {
+            changes: yield* Fiber.join(fiber),
+            current: yield* history.current,
+          };
+        }),
+        memory.layer,
+      );
+
+      expect(result.changes).toEqual(["/observed"]);
+      expect(result.current).toBe("/observed");
+      expect(yield* memory.current).toBe("/observed");
+      expect(yield* memory.pushes).toEqual(["/pushed"]);
     }),
   );
 

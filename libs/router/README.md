@@ -37,7 +37,8 @@ guessing from the DOM alone.
 
 ## Current Scope
 
-This package currently supports programmatic navigation to an href.
+This package currently supports programmatic navigation to an href and observing
+browser back/forward navigation.
 
 It intentionally does not yet provide:
 
@@ -47,8 +48,6 @@ It intentionally does not yet provide:
 - redirects
 - guards or blockers
 - scroll restoration
-- browser back/forward handling
-- `popstate` handling
 
 Those features can be added later without changing the core consumer model:
 navigation remains facts plus projected state.
@@ -94,6 +93,7 @@ Current event variants are:
 ```text
 NavigationRequested
 NavigationCommitted
+NavigationObserved
 NavigationFailed
 ```
 
@@ -128,7 +128,8 @@ Use these fields as follows:
 - `navigate` changes the browser route to an href.
 - `dispatch` accepts typed router commands.
 - `state` reads the current route state.
-- `stateChanges` streams the initial state and later committed state changes.
+- `stateChanges` streams the initial state and later committed or observed state
+  changes.
 - `journal` reads the retained navigation facts.
 - `journalChanges` streams newly appended navigation facts after subscription.
 
@@ -157,6 +158,11 @@ console.log(state.href); // "/settings"
 ```
 
 `Router.layerBrowser` wires the router to browser history.
+
+Browser back/forward navigation is observed through `popstate`. When the browser
+location changes outside `router.navigate` or `router.dispatch`, the router
+appends a `NavigationObserved` fact and updates projected state to the observed
+href.
 
 ### Dispatch A Command
 
@@ -268,6 +274,7 @@ const program = Effect.gen(function* () {
       const router = yield* Router;
 
       yield* router.navigate("/settings");
+      yield* memory.observe("/account");
 
       return {
         state: yield* router.state,
@@ -284,15 +291,23 @@ const program = Effect.gen(function* () {
 });
 ```
 
+`memory.observe(href)` simulates browser-originated navigation such as
+back/forward. It updates the memory location and emits a history change without
+recording a push.
+
 ## Behavior Guarantees
 
 - Navigating to the current href is a silent no-op.
 - Non-deduped navigations append a requested event and one outcome event.
 - Successful navigation updates browser history and projected state.
 - Failed navigation records a failed event and leaves projected state unchanged.
+- Browser back/forward navigation appends an observed event and updates projected
+  state.
+- Observed navigation to the current href is a silent no-op.
 - Concurrent navigations are processed one at a time.
 - `journalChanges` emits facts in journal order.
-- `stateChanges` emits the seeded state and later committed state changes.
+- `stateChanges` emits the seeded state and later committed or observed state
+  changes.
 
 ## When To Use The Journal
 

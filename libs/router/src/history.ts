@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, Ref } from "effect";
+import { Context, Data, Effect, Layer, PubSub, Ref, Stream } from "effect";
 
 /**
  * Machine-readable reasons for history service failures.
@@ -28,6 +28,7 @@ export class HistoryError extends Data.TaggedError("HistoryError")<{
 export interface HistoryShape {
   readonly push: (href: string) => Effect.Effect<void, HistoryError>;
   readonly current: Effect.Effect<string, HistoryError>;
+  readonly changes: Stream.Stream<string>;
 }
 
 /**
@@ -61,6 +62,10 @@ export const WindowHistory: {
 
       const browserWindow = window;
 
+      function currentHref() {
+        return `${browserWindow.location.pathname}${browserWindow.location.search}${browserWindow.location.hash}`;
+      }
+
       return {
         push: Effect.fn("@cab/router/WindowHistory.push")(function* (href: string) {
           return yield* Effect.try({
@@ -68,9 +73,9 @@ export const WindowHistory: {
             catch: (cause) => new HistoryError({ reason: "push-failed", cause }),
           });
         }),
-        current: Effect.sync(
-          () =>
-            `${browserWindow.location.pathname}${browserWindow.location.search}${browserWindow.location.hash}`,
+        current: Effect.sync(currentHref),
+        changes: Stream.fromEventListener<PopStateEvent>(browserWindow, "popstate").pipe(
+          Stream.map(() => currentHref()),
         ),
       };
     }),
@@ -87,6 +92,7 @@ export interface MemoryHistory {
   readonly layer: Layer.Layer<History>;
   readonly pushes: Effect.Effect<ReadonlyArray<string>>;
   readonly current: Effect.Effect<string>;
+  readonly observe: (href: string) => Effect.Effect<void>;
 }
 
 /**
@@ -99,18 +105,27 @@ export const MemoryHistory: {
   readonly make: (initialHref: string) => Effect.Effect<MemoryHistory>;
 } = {
   make: Effect.fn("@cab/router/MemoryHistory.make")(function* (initialHref: string) {
+    const locationRef = yield* Ref.make(initialHref);
     const pushesRef = yield* Ref.make<ReadonlyArray<string>>([]);
-    const current = Ref.get(pushesRef).pipe(Effect.map((pushes) => pushes.at(-1) ?? initialHref));
+    const changesPubSub = yield* PubSub.unbounded<string>();
+    const current = Ref.get(locationRef);
+    const observe = Effect.fn("@cab/router/MemoryHistory.observe")(function* (href: string) {
+      yield* Ref.set(locationRef, href);
+      yield* PubSub.publish(changesPubSub, href);
+    });
 
     return {
       layer: Layer.succeed(History, {
         push: Effect.fn("@cab/router/MemoryHistory.push")(function* (href: string) {
+          yield* Ref.set(locationRef, href);
           yield* Ref.update(pushesRef, (pushes) => [...pushes, href]);
         }),
         current,
+        changes: Stream.fromPubSub(changesPubSub),
       }),
       pushes: Ref.get(pushesRef),
       current,
+      observe,
     };
   }),
 };

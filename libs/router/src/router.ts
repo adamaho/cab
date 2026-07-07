@@ -93,11 +93,42 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
       const commit = Effect.fn("@cab/router/Router.commit")(function* (event: RouterEvent) {
         yield* append(event);
 
-        if (event._tag === "NavigationCommitted") {
+        if (event._tag === "NavigationCommitted" || event._tag === "NavigationObserved") {
           const state = yield* SubscriptionRef.get(stateRef);
           yield* SubscriptionRef.set(stateRef, reduce(state, event));
         }
       });
+
+      const observeCurrent = Effect.fn("@cab/router/Router.observeCurrent")(function* () {
+        yield* semaphore.withPermit(
+          history.current.pipe(
+            Effect.matchEffect({
+              onFailure: () => Effect.succeed(undefined),
+              onSuccess: (href) =>
+                Effect.gen(function* () {
+                  const state = yield* SubscriptionRef.get(stateRef);
+
+                  if (state.href === href) {
+                    return;
+                  }
+
+                  yield* commit(
+                    RouterEvent.NavigationObserved({
+                      sequence: yield* nextSequence,
+                      href,
+                    }),
+                  );
+                }),
+            }),
+          ),
+        );
+      });
+
+      yield* history.changes.pipe(
+        Stream.buffer({ capacity: 1, strategy: "sliding" }),
+        Stream.runForEach(() => observeCurrent()),
+        Effect.forkScoped,
+      );
 
       const dispatch = Effect.fn("@cab/router/Router.dispatch")(function* (command: RouterCommand) {
         yield* semaphore.withPermit(
