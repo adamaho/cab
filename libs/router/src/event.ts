@@ -1,5 +1,7 @@
 import { Data } from "effect";
 
+import type { HistoryErrorReason } from "./history";
+
 /**
  * User-originated router commands accepted by the router service.
  *
@@ -57,7 +59,7 @@ export type RouterEvent = Data.TaggedEnum<{
   NavigationFailed: {
     readonly sequence: number;
     readonly href: string;
-    readonly reason: "window-unavailable" | "push-failed";
+    readonly reason: HistoryErrorReason;
     readonly cause?: unknown;
   };
 }>;

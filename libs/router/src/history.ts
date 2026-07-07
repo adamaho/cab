@@ -85,6 +85,12 @@ export const WindowHistory: {
 /**
  * Memory history handle with inspection effects.
  *
+ * **Details**
+ *
+ * `observe` simulates browser-originated navigation in tests. Late subscribers
+ * to `changes` receive the most recent observation, which makes memory-backed
+ * tests deterministic and intentionally differs from browser `popstate`.
+ *
  * @category models
  * @since 0.0.0
  */
@@ -107,7 +113,7 @@ export const MemoryHistory: {
   make: Effect.fn("@cab/router/MemoryHistory.make")(function* (initialHref: string) {
     const locationRef = yield* Ref.make(initialHref);
     const pushesRef = yield* Ref.make<ReadonlyArray<string>>([]);
-    const changesPubSub = yield* PubSub.unbounded<string>();
+    const changesPubSub = yield* PubSub.unbounded<string>({ replay: 1 });
     const current = Ref.get(locationRef);
     const observe = Effect.fn("@cab/router/MemoryHistory.observe")(function* (href: string) {
       yield* Ref.set(locationRef, href);

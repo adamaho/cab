@@ -38,7 +38,7 @@ export interface RouterShape {
   readonly state: Effect.Effect<RouterState>;
 
   /**
-   * Streams the seeded router state and each later committed state change.
+   * Streams the seeded router state and each later committed or observed state change.
    */
   readonly stateChanges: Stream.Stream<RouterState>;
 
@@ -93,9 +93,11 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
       const commit = Effect.fn("@cab/router/Router.commit")(function* (event: RouterEvent) {
         yield* append(event);
 
-        if (event._tag === "NavigationCommitted" || event._tag === "NavigationObserved") {
-          const state = yield* SubscriptionRef.get(stateRef);
-          yield* SubscriptionRef.set(stateRef, reduce(state, event));
+        const state = yield* SubscriptionRef.get(stateRef);
+        const next = reduce(state, event);
+
+        if (next !== state) {
+          yield* SubscriptionRef.set(stateRef, next);
         }
       });
 
@@ -103,7 +105,7 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
         yield* semaphore.withPermit(
           history.current.pipe(
             Effect.matchEffect({
-              onFailure: () => Effect.succeed(undefined),
+              onFailure: () => Effect.void,
               onSuccess: (href) =>
                 Effect.gen(function* () {
                   const state = yield* SubscriptionRef.get(stateRef);

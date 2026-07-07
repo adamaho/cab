@@ -1,7 +1,20 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Deferred, Effect, Fiber, Stream } from "effect";
+import { Cause, Effect, Fiber, Stream } from "effect";
 
 import { History, HistoryError, MemoryHistory, WindowHistory } from "../src/history";
+
+/**
+ * Forks live-stream collection after giving the child fiber one run slice.
+ *
+ * Guarantee: `Stream.fromPubSub` acquires its subscription synchronously on the
+ * forked fiber's first run slice, so one parent yield lets the child run from
+ * fork to its first suspension point at `PubSub.take`.
+ */
+function forkCollect<A, E>(stream: Stream.Stream<A, E>, n: number) {
+  return stream
+    .pipe(Stream.take(n), Stream.runCollect, Effect.forkChild)
+    .pipe(Effect.tap(() => Effect.yieldNow));
+}
 
 describe("history", () => {
   it.effect("creates memory-backed history layers with observable state", () =>
@@ -12,7 +25,6 @@ describe("history", () => {
         const history = yield* History;
 
         expect(yield* history.current).toBe("/");
-        expect(yield* history.changes.pipe(Stream.take(0), Stream.runCollect)).toEqual([]);
 
         yield* history.push("/settings?tab=profile#details");
 
@@ -51,16 +63,8 @@ describe("history", () => {
       const result = yield* Effect.provide(
         Effect.gen(function* () {
           const history = yield* History;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* history.changes.pipe(
-            Stream.onStart(Deferred.succeed(ready, undefined)),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const fiber = yield* forkCollect(history.changes, 1);
 
-          yield* Deferred.await(ready);
-          yield* Effect.yieldNow;
           yield* history.push("/pushed");
           yield* memory.observe("/observed");
 

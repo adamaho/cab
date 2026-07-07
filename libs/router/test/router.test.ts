@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
+import { vi } from "vitest";
 
 import { RouterCommand, RouterEvent } from "../src/event";
 import { History, HistoryError, MemoryHistory } from "../src/history";
@@ -10,17 +11,34 @@ function fold(initialHref: string, events: ReadonlyArray<RouterEvent>) {
   return events.reduce(reduce, initial(initialHref));
 }
 
+function withRouter<A, E>(memory: MemoryHistory, program: Effect.Effect<A, E, Router>) {
+  return Effect.provide(program, Router.layer.pipe(Layer.provide(memory.layer)));
+}
+
+/**
+ * Forks live-stream collection after giving the child fiber one run slice.
+ *
+ * Guarantee: `Stream.fromPubSub` acquires its subscription synchronously on the
+ * forked fiber's first run slice, so one parent yield lets the child run from
+ * fork to its first suspension point at `PubSub.take`.
+ */
+function forkCollect<A, E>(stream: Stream.Stream<A, E>, n: number) {
+  return stream
+    .pipe(Stream.take(n), Stream.runCollect, Effect.forkChild)
+    .pipe(Effect.tap(() => Effect.yieldNow));
+}
+
 describe("router", () => {
   it.effect("seeds state from history current", () =>
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/seeded");
 
-      const state = yield* Effect.provide(
+      const state = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
           return yield* router.state;
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(state).toEqual({ href: "/seeded" });
@@ -31,7 +49,8 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
 
@@ -43,7 +62,6 @@ describe("router", () => {
             journal: yield* router.journal,
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.state).toEqual({ href: "/billing" });
@@ -62,24 +80,16 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const events = yield* Effect.provide(
+      const events = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(ready, undefined)),
-            Stream.take(2),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const fiber = yield* forkCollect(router.journalChanges, 2);
 
-          yield* Deferred.await(ready);
-          yield* Effect.yieldNow;
           yield* router.navigate("/settings");
 
           return yield* Fiber.join(fiber);
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(events).toEqual([
@@ -93,7 +103,8 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
 
@@ -104,7 +115,6 @@ describe("router", () => {
             journal: yield* router.journal,
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.state).toEqual({ href: "/" });
@@ -117,25 +127,17 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const firstEvent = yield* Effect.provide(
+      const firstEvent = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(ready, undefined)),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const fiber = yield* forkCollect(router.journalChanges, 1);
 
-          yield* Deferred.await(ready);
-          yield* Effect.yieldNow;
           yield* router.navigate("/");
           yield* router.navigate("/settings");
 
           return yield* Fiber.join(fiber);
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(firstEvent).toEqual([
@@ -148,27 +150,20 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
           const stateReady = yield* Deferred.make<void>();
-          const journalReady = yield* Deferred.make<void>();
           const stateFiber = yield* router.stateChanges.pipe(
             Stream.tap(() => Deferred.succeed(stateReady, undefined)),
             Stream.take(2),
             Stream.runCollect,
             Effect.forkChild,
           );
-          const eventFiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(journalReady, undefined)),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const eventFiber = yield* forkCollect(router.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
-          yield* Deferred.await(journalReady);
-          yield* Effect.yieldNow;
           yield* memory.observe("/external");
           yield* Fiber.join(stateFiber);
 
@@ -178,7 +173,6 @@ describe("router", () => {
             journal: yield* router.journal,
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.state).toEqual({ href: "/external" });
@@ -197,27 +191,20 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
           const stateReady = yield* Deferred.make<void>();
-          const journalReady = yield* Deferred.make<void>();
           const statesFiber = yield* router.stateChanges.pipe(
             Stream.tap(() => Deferred.succeed(stateReady, undefined)),
             Stream.take(2),
             Stream.runCollect,
             Effect.forkChild,
           );
-          const eventsFiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(journalReady, undefined)),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const eventsFiber = yield* forkCollect(router.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
-          yield* Deferred.await(journalReady);
-          yield* Effect.yieldNow;
           yield* memory.observe("/external");
 
           return {
@@ -225,7 +212,6 @@ describe("router", () => {
             events: yield* Fiber.join(eventsFiber),
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.states).toEqual([{ href: "/" }, { href: "/external" }]);
@@ -239,19 +225,14 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(ready, undefined)),
-            Stream.take(1),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const fiber = yield* forkCollect(router.journalChanges, 1);
 
-          yield* Deferred.await(ready);
-          yield* Effect.yieldNow;
+          // Both valid interleavings pass: the consumer can process `/` before
+          // `/external`, or the sliding buffer can coalesce directly to `/external`.
           yield* memory.observe("/");
           yield* memory.observe("/external");
 
@@ -260,7 +241,6 @@ describe("router", () => {
             journal: yield* router.journal,
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.event).toEqual([
@@ -328,16 +308,8 @@ describe("router", () => {
       const events = yield* Effect.provide(
         Effect.gen(function* () {
           const router = yield* Router;
-          const ready = yield* Deferred.make<void>();
-          const fiber = yield* router.journalChanges.pipe(
-            Stream.onStart(Deferred.succeed(ready, undefined)),
-            Stream.take(2),
-            Stream.runCollect,
-            Effect.forkChild,
-          );
+          const fiber = yield* forkCollect(router.journalChanges, 2);
 
-          yield* Deferred.await(ready);
-          yield* Effect.yieldNow;
           yield* router.navigate("/settings");
 
           return yield* Fiber.join(fiber);
@@ -361,7 +333,8 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const values = yield* Effect.provide(
+      const values = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
           const ready = yield* Deferred.make<void>();
@@ -378,7 +351,6 @@ describe("router", () => {
 
           return yield* Fiber.join(fiber);
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(values).toEqual([{ href: "/" }, { href: "/settings" }, { href: "/billing" }]);
@@ -411,8 +383,6 @@ describe("router", () => {
           yield* Deferred.await(startedFirst);
 
           const second = yield* router.navigate("/b").pipe(Effect.forkChild);
-
-          yield* Effect.yieldNow;
 
           expect(yield* Ref.get(pushesRef)).toEqual(["/a"]);
           expect(yield* router.journal).toEqual([
@@ -447,19 +417,18 @@ describe("router", () => {
     Effect.gen(function* () {
       const memory = yield* MemoryHistory.make("/");
 
-      const result = yield* Effect.provide(
+      const result = yield* withRouter(
+        memory,
         Effect.gen(function* () {
           const router = yield* Router;
 
           yield* router.navigate("/settings");
-          yield* Effect.yieldNow;
 
           return {
             state: yield* router.state,
             journal: yield* router.journal,
           };
         }),
-        Router.layer.pipe(Layer.provide(memory.layer)),
       );
 
       expect(result.state).toEqual({ href: "/settings" });
@@ -474,19 +443,26 @@ describe("router", () => {
   it.effect("re-reads current href before folding queued observations", () =>
     Effect.gen(function* () {
       const locationRef = yield* Ref.make("/b");
-      const changesPubSub = yield* PubSub.unbounded<string>();
-      const consumerReady = yield* Deferred.make<void>();
+      const changesPubSub = yield* PubSub.unbounded<string>({ replay: 1 });
       const pushStarted = yield* Deferred.make<void>();
       const releasePush = yield* Deferred.make<void>();
+      const reReadArmedRef = yield* Ref.make(false);
+      const reReadAfterRelease = yield* Deferred.make<void>();
       const observe = Effect.fn("test.staleObservationHistory.observe")(function* (href: string) {
         yield* Ref.set(locationRef, href);
         yield* PubSub.publish(changesPubSub, href);
       });
       const historyLayer = Layer.succeed(History, {
-        current: Ref.get(locationRef),
-        changes: Stream.fromPubSub(changesPubSub).pipe(
-          Stream.onStart(Deferred.succeed(consumerReady, undefined)),
-        ),
+        current: Effect.gen(function* () {
+          const href = yield* Ref.get(locationRef);
+
+          if (yield* Ref.get(reReadArmedRef)) {
+            yield* Deferred.succeed(reReadAfterRelease, undefined);
+          }
+
+          return href;
+        }),
+        changes: Stream.fromPubSub(changesPubSub),
         push: Effect.fn("test.staleObservationHistory.push")(function* (href: string) {
           yield* Deferred.succeed(pushStarted, undefined);
           yield* Deferred.await(releasePush);
@@ -498,21 +474,19 @@ describe("router", () => {
         Effect.gen(function* () {
           const router = yield* Router;
 
-          yield* Deferred.await(consumerReady);
-
           const navigation = yield* router.navigate("/c").pipe(Effect.forkChild);
 
           yield* Deferred.await(pushStarted);
           yield* observe("/a");
-          yield* Effect.yieldNow;
 
           expect(yield* router.journal).toEqual([
             RouterEvent.NavigationRequested({ sequence: 0, href: "/c" }),
           ]);
 
+          yield* Ref.set(reReadArmedRef, true);
           yield* Deferred.succeed(releasePush, undefined);
           yield* Fiber.join(navigation);
-          yield* Effect.yieldNow;
+          yield* Deferred.await(reReadAfterRelease);
 
           return {
             state: yield* router.state,
@@ -529,6 +503,147 @@ describe("router", () => {
         RouterEvent.NavigationRequested({ sequence: 0, href: "/c" }),
         RouterEvent.NavigationCommitted({ sequence: 1, href: "/c" }),
       ]);
+    }),
+  );
+
+  it.effect("keeps consuming observations after a current read fails", () =>
+    Effect.gen(function* () {
+      const locationRef = yield* Ref.make("/");
+      const failNextRef = yield* Ref.make(false);
+      const failedRead = yield* Deferred.make<void>();
+      const changesPubSub = yield* PubSub.unbounded<string>({ replay: 1 });
+      const observe = Effect.fn("test.recoveringObservationHistory.observe")(function* (
+        href: string,
+      ) {
+        yield* Ref.set(locationRef, href);
+        yield* PubSub.publish(changesPubSub, href);
+      });
+      const historyLayer = Layer.succeed(History, {
+        current: Effect.gen(function* () {
+          if (yield* Ref.get(failNextRef)) {
+            yield* Ref.set(failNextRef, false);
+            yield* Deferred.succeed(failedRead, undefined);
+            return yield* Effect.fail(new HistoryError({ reason: "window-unavailable" }));
+          }
+
+          return yield* Ref.get(locationRef);
+        }),
+        changes: Stream.fromPubSub(changesPubSub),
+        push: Effect.fn("test.recoveringObservationHistory.push")(function* (href: string) {
+          yield* Ref.set(locationRef, href);
+        }),
+      });
+
+      const result = yield* Effect.provide(
+        Effect.gen(function* () {
+          const router = yield* Router;
+          const stateFiber = yield* forkCollect(router.stateChanges, 2);
+          const fiber = yield* forkCollect(router.journalChanges, 1);
+
+          yield* Ref.set(failNextRef, true);
+          yield* observe("/x");
+          yield* Deferred.await(failedRead);
+          yield* observe("/y");
+
+          return {
+            events: yield* Fiber.join(fiber),
+            states: yield* Fiber.join(stateFiber),
+            state: yield* router.state,
+            journal: yield* router.journal,
+          };
+        }),
+        Router.layer.pipe(Layer.provide(historyLayer)),
+      );
+
+      expect(result.events).toEqual([RouterEvent.NavigationObserved({ sequence: 0, href: "/y" })]);
+      expect(result.states).toEqual([{ href: "/" }, { href: "/y" }]);
+      expect(result.journal).toEqual([RouterEvent.NavigationObserved({ sequence: 0, href: "/y" })]);
+      expect(result.state).toEqual({ href: "/y" });
+      expect(fold("/", result.journal)).toEqual(result.state);
+    }),
+  );
+
+  it.effect("observes browser popstate through the browser layer", () =>
+    Effect.gen(function* () {
+      const listenerReady = yield* Deferred.make<void>();
+
+      class FakeWindow extends EventTarget {
+        readonly pushCalls: Array<string> = [];
+        location = { pathname: "/", search: "", hash: "" };
+        history = {
+          pushState: (_state: unknown, _unused: string, href: string) => {
+            this.pushCalls.push(href);
+            this.setHref(href);
+          },
+        };
+
+        override addEventListener(
+          type: string,
+          callback: EventListenerOrEventListenerObject | null,
+          options?: AddEventListenerOptions | boolean,
+        ) {
+          super.addEventListener(type, callback, options);
+          Effect.runSync(Deferred.succeed(listenerReady, undefined));
+        }
+
+        setHref(href: string) {
+          const url = new URL(href, "https://cab.test");
+          this.location = {
+            pathname: url.pathname,
+            search: url.search,
+            hash: url.hash,
+          };
+        }
+      }
+
+      const fakeWindow = new FakeWindow();
+
+      const result = yield* Effect.gen(function* () {
+        yield* Effect.sync(() => vi.stubGlobal("window", fakeWindow));
+
+        return yield* Effect.gen(function* () {
+          const router = yield* Router;
+          const popStatesFiber = yield* forkCollect(router.stateChanges, 2);
+          const popEventsFiber = yield* forkCollect(router.journalChanges, 1);
+
+          yield* Deferred.await(listenerReady);
+          yield* Effect.sync(() => {
+            fakeWindow.setHref("/external?x=1#details");
+            fakeWindow.dispatchEvent(new Event("popstate"));
+          });
+
+          const popStates = yield* Fiber.join(popStatesFiber);
+          const popEvents = yield* Fiber.join(popEventsFiber);
+          const navigateEventsFiber = yield* forkCollect(router.journalChanges, 2);
+
+          yield* router.navigate("/pushed");
+
+          return {
+            popStates,
+            popEvents,
+            navigateEvents: yield* Fiber.join(navigateEventsFiber),
+            state: yield* router.state,
+            journal: yield* router.journal,
+            pushCalls: fakeWindow.pushCalls,
+          };
+        }).pipe(Effect.provide(Router.layerBrowser));
+      }).pipe(Effect.ensuring(Effect.sync(() => vi.unstubAllGlobals())));
+
+      expect(result.popStates).toEqual([{ href: "/" }, { href: "/external?x=1#details" }]);
+      expect(result.popEvents).toEqual([
+        RouterEvent.NavigationObserved({ sequence: 0, href: "/external?x=1#details" }),
+      ]);
+      expect(result.navigateEvents).toEqual([
+        RouterEvent.NavigationRequested({ sequence: 1, href: "/pushed" }),
+        RouterEvent.NavigationCommitted({ sequence: 2, href: "/pushed" }),
+      ]);
+      expect(result.state).toEqual({ href: "/pushed" });
+      expect(result.journal).toEqual([
+        RouterEvent.NavigationObserved({ sequence: 0, href: "/external?x=1#details" }),
+        RouterEvent.NavigationRequested({ sequence: 1, href: "/pushed" }),
+        RouterEvent.NavigationCommitted({ sequence: 2, href: "/pushed" }),
+      ]);
+      expect(result.pushCalls).toEqual(["/pushed"]);
     }),
   );
 });
