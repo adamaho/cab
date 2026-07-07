@@ -26,8 +26,8 @@ export const routerRuntimeAtom: Atom.AtomRuntime<Router, HistoryError> = Atom.ru
  *
  * **Details**
  *
- * The atom subscribes to `Router.changes`, which emits the seeded state and each
- * later committed navigation state.
+ * The atom subscribes to `Router.stateChanges`, which emits the seeded state and
+ * each later committed navigation state.
  *
  * @category atoms
  * @since 0.0.0
@@ -38,7 +38,7 @@ export const routerStateAtom: Atom.Atom<
   Stream.unwrap(
     Effect.gen(function* () {
       const router = yield* Router;
-      return router.changes;
+      return router.stateChanges;
     }),
   ),
 );

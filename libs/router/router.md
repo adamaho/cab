@@ -11,8 +11,8 @@ step-by-step implementation plan with review gates.
    produced by folding the journal. Persistence is out of scope for now.
 2. **MUST use Effect** — and idiomatic Effect throughout: `Context.Service`
    for services, `Data.TaggedError` for typed failures, `Data.taggedEnum` for
-   events, `Layer` for wiring, `Ref`/`SubscriptionRef`/`Stream` for state,
-   `Atom` for UI consumption.
+   events, `Layer` for wiring, `Ref`/`PubSub`/`SubscriptionRef`/`Stream` for
+   journal and state, `Atom` for UI consumption.
 3. **MUST ONLY support navigating the application to a different route.**
    No route matching, params, loaders, guards, blockers, back/forward
    (`popstate`), links, or scroll handling.
@@ -115,7 +115,7 @@ libs/router/src/
   history.ts   History service: push(href) + current
                WindowHistory.layer / MemoryHistory.make
   router.ts    Router service + layer: serialized dispatch + Ref<journal>
-               + SubscriptionRef<state>
+               + PubSub<journal event> + SubscriptionRef<state>
   atoms.ts     Atom bindings: runtime atom, state atom, navigate fn atom
   index.ts     public exports
   test/        vitest unit tests, matching Effect's package-level test layout
@@ -199,9 +199,10 @@ export interface RouterShape {
   // dispatch accepts user-originated commands only; outcome events are system-written.
   readonly dispatch: (command: RouterCommand) => Effect.Effect<void>
   readonly navigate: (href: string) => Effect.Effect<void>       // convenience wrapper over dispatch
-  readonly state: Effect.Effect<RouterState>                   // current projection
-  readonly changes: Stream.Stream<RouterState>                 // projection updates
-  readonly events: Effect.Effect<ReadonlyArray<RouterEvent>>   // journal read
+  readonly state: Effect.Effect<RouterState>                   // current projection snapshot
+  readonly stateChanges: Stream.Stream<RouterState>            // seeded projection + updates
+  readonly journal: Effect.Effect<ReadonlyArray<RouterEvent>>  // journal snapshot
+  readonly journalChanges: Stream.Stream<RouterEvent>          // live appended journal events
 }
 export class Router extends Context.Service<Router, RouterShape>()(
   "@cab/router/Router"
@@ -275,13 +276,15 @@ import { routerNavigateAtom, routerRuntimeAtom, routerStateAtom } from "@cab/rou
    attempt — with `MemoryHistory.make`, recorded pushes correspond one-to-one
    with `NavigationCommitted` plus `NavigationFailed` outcome events.
 8. `layer` seeds initial state from `History.current` at construction.
-9. `changes` emits the seeded state then one update per committed navigation
+9. `stateChanges` emits the seeded state then one update per committed navigation
    that changes the projection.
-10. `WindowHistory.layer` fails with `HistoryError{ reason: "window-unavailable" }`
+10. `journalChanges` emits each newly appended journal event after subscription,
+    preserving journal order. It is live-only; read `journal` for retained facts.
+11. `WindowHistory.layer` fails with `HistoryError{ reason: "window-unavailable" }`
     when `window` is not available during layer construction; push failures are
     captured as `NavigationFailed` events with
     `HistoryError{ reason: "push-failed", cause }` data.
-11. Concurrent `dispatch`/`navigate` calls are processed one at a time. A
+12. Concurrent `dispatch`/`navigate` calls are processed one at a time. A
     command's dedupe check, request event, history push attempt, outcome event,
     and projection update complete before the next command starts.
 
@@ -303,18 +306,18 @@ against `MemoryHistory.make` and assert memory behavior; no DOM, no mocks of
 internals. Sensors: focused lint/tsc/test:unit.
 
 **Step 3 — Router service.** `router.ts` + `test/router.test.ts`.
-Journal `Ref<ReadonlyArray<RouterEvent>>`, projection
+Journal `Ref<ReadonlyArray<RouterEvent>>`, live journal `PubSub<RouterEvent>`, projection
 `SubscriptionRef<RouterState>` seeded from `History.current`. `dispatch` is
 serialized with the smallest Effect synchronization primitive verified against
 the installed v4 typings: dedupe same-href `NavigationRequested` commands →
 append `NavigationRequested` (next sequence) → run exactly one `History.push`
 attempt → append `NavigationCommitted` on success or `NavigationFailed` on
 failure → fold into projection. `navigate` delegates to `dispatch`. Tests cover
-semantics 1–11 (replay invariant is the centerpiece). Sensors: focused
+semantics 1–12 (replay invariant is the centerpiece). Sensors: focused
 lint/tsc/test:unit.
 
 **Step 4 — Atom bindings + public surface.** `atoms.ts` + `index.ts`.
-`Atom.runtime(Router.layerBrowser)`, state atom from `changes`/`state`, navigate
+`Atom.runtime(Router.layerBrowser)`, state atom from `stateChanges`/`state`, navigate
 via `Atom.fn` exported as `routerNavigateAtom`. Verify `Atom.runtime`,
 derived-atom, and `Atom.fn` signatures in
 `node_modules/effect/dist/unstable/reactivity/Atom.d.ts` before writing.
@@ -372,6 +375,6 @@ signal, re-run. No broad rewrites as a first corrective action.
   (`// -- Types --` style) per `CONTRIBUTING.md` for larger files.
 - Load and apply the `pid` skill before editing (repo rule).
 - Tests assert behavior through the public contract only — never reach into
-  journal internals beyond the public `events` read.
+  journal internals beyond the public `journal` read.
 - Smallest change that satisfies the step; no scope creep into extension
   seams.

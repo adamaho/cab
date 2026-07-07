@@ -1,13 +1,14 @@
 import { RegistryProvider, useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-solid";
 import {
   Router,
+  RouterCommand,
+  routerNavigateAtom,
   routerRuntimeAtom,
   routerStateAtom,
-  type RouterEvent,
   type RouterState,
 } from "@cab/router";
 import * as stylex from "@stylexjs/stylex";
-import { Cause, Effect } from "effect";
+import { Cause, Effect, Stream } from "effect";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 import { For } from "solid-js";
 
@@ -21,16 +22,21 @@ const routes = [
   { href: "/billing", label: "Billing" },
 ] as const;
 
-let loggedEventCount = 0;
+const logJournalChangesAtom = routerRuntimeAtom.atom(
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const router = yield* Router;
+      return router.journalChanges.pipe(
+        Stream.tap((event) => Effect.sync(() => console.log("[router:event]", event))),
+      );
+    }),
+  ),
+);
 
-const navigateAndLogAtom = routerRuntimeAtom.fn<string>()((href: string) =>
+const dispatchNavigationAtom = routerRuntimeAtom.fn<string>()((href: string) =>
   Effect.gen(function* () {
     const router = yield* Router;
-
-    yield* router.navigate(href);
-
-    const events = yield* router.events;
-    logNewEvents(events);
+    yield* router.dispatch(RouterCommand.NavigationRequested({ href }));
   }),
 );
 
@@ -50,14 +56,6 @@ function statusFrom(result: AsyncResult.AsyncResult<RouterState, unknown>) {
   return "Starting router runtime...";
 }
 
-function logNewEvents(events: ReadonlyArray<RouterEvent>) {
-  for (const event of events.slice(loggedEventCount)) {
-    console.log("[router:event]", event);
-  }
-
-  loggedEventCount = events.length;
-}
-
 // -----------------------------------------------------------------------------
 // Component
 // -----------------------------------------------------------------------------
@@ -72,9 +70,11 @@ export function App() {
 
 function RouterDemo() {
   useAtomMount(() => routerRuntimeAtom);
+  useAtomMount(() => logJournalChangesAtom);
 
   const state = useAtomValue(() => routerStateAtom);
-  const navigate = useAtomSet(() => navigateAndLogAtom);
+  const navigate = useAtomSet(() => routerNavigateAtom);
+  const dispatchNavigation = useAtomSet(() => dispatchNavigationAtom);
 
   return (
     <main {...stylex.attrs(styles.shell)} aria-labelledby="playground-title">
@@ -94,23 +94,45 @@ function RouterDemo() {
           <p {...stylex.attrs(styles.status)}>{statusFrom(state())}</p>
         </div>
 
-        <nav {...stylex.attrs(styles.nav)} aria-label="Playground routes">
-          <For each={routes}>
-            {(route) => (
-              <button
-                {...stylex.attrs(
-                  styles.navButton,
-                  hrefFrom(state()) === route.href && styles.navButtonActive,
-                )}
-                aria-current={hrefFrom(state()) === route.href ? "page" : undefined}
-                onClick={() => navigate(route.href)}
-                type="button"
-              >
-                {route.label}
-              </button>
-            )}
-          </For>
-        </nav>
+        <div {...stylex.attrs(styles.routeControls)}>
+          <span {...stylex.attrs(styles.routeGroupLabel)}>navigate(href)</span>
+          <nav {...stylex.attrs(styles.nav)} aria-label="Playground routes using navigate">
+            <For each={routes}>
+              {(route) => (
+                <button
+                  {...stylex.attrs(
+                    styles.navButton,
+                    hrefFrom(state()) === route.href && styles.navButtonActive,
+                  )}
+                  aria-current={hrefFrom(state()) === route.href ? "page" : undefined}
+                  onClick={() => navigate(route.href)}
+                  type="button"
+                >
+                  {route.label}
+                </button>
+              )}
+            </For>
+          </nav>
+
+          <span {...stylex.attrs(styles.routeGroupLabel)}>dispatch(command)</span>
+          <nav {...stylex.attrs(styles.nav)} aria-label="Playground routes using dispatch">
+            <For each={routes}>
+              {(route) => (
+                <button
+                  {...stylex.attrs(
+                    styles.navButton,
+                    hrefFrom(state()) === route.href && styles.navButtonActive,
+                  )}
+                  aria-current={hrefFrom(state()) === route.href ? "page" : undefined}
+                  onClick={() => dispatchNavigation(route.href)}
+                  type="button"
+                >
+                  {route.label}
+                </button>
+              )}
+            </For>
+          </nav>
+        </div>
       </section>
     </main>
   );
@@ -186,11 +208,21 @@ const styles = stylex.create({
     marginBlockEnd: 0,
     marginBlockStart: "0.75rem",
   },
+  routeControls: {
+    display: "grid",
+    gap: "0.75rem",
+    marginBlockStart: "1.25rem",
+  },
+  routeGroupLabel: {
+    color: "#6e5b43",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    fontSize: "0.8125rem",
+    fontWeight: 700,
+  },
   nav: {
     display: "flex",
     flexWrap: "wrap",
     gap: "0.75rem",
-    marginBlockStart: "1.25rem",
   },
   navButton: {
     backgroundColor: "#ffffff",
