@@ -24,6 +24,9 @@ catalogs:
     '@stylexjs/unplugin':
       specifier: 0.19.0
       version: 0.19.0
+    alien-signals:
+      specifier: 3.2.1
+      version: 3.2.1
     effect:
       specifier: 4.0.0-beta.93
       version: 4.0.0-beta.93
@@ -150,6 +153,37 @@ importers:
       vite-plugin-solid:
         specifier: 'catalog:'
         version: 2.11.12(solid-js@1.9.14)(vite@8.1.3(yaml@2.9.0))
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.9(jsdom@29.1.1)(vite@8.1.3(yaml@2.9.0))
+
+  libs/store:
+    dependencies:
+      alien-signals:
+        specifier: 'catalog:'
+        version: 3.2.1
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-beta.93
+    devDependencies:
+      '@cab/tool-oxlint-config':
+        specifier: workspace:*
+        version: link:../../tools/oxlint-config
+      '@cab/tool-tsconfig':
+        specifier: workspace:*
+        version: link:../../tools/tsconfig
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.0-beta.93(effect@4.0.0-beta.93)(vitest@4.1.9(jsdom@29.1.1)(vite@8.1.3(yaml@2.9.0)))
+      oxlint:
+        specifier: 'catalog:'
+        version: 1.72.0
+      rimraf:
+        specifier: 'catalog:'
+        version: 6.1.3
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
       vitest:
         specifier: 'catalog:'
         version: 4.1.9(jsdom@29.1.1)(vite@8.1.3(yaml@2.9.0))
@@ -936,6 +970,9 @@ packages:
     resolution: {integrity: sha512-xRQbDb9BnwDafYNn6Vwl839DYVjqXYb1XVGtWAZ1kcDc6iwAL4hg3B1dZlRiuENFeO2H53gFG3in621AdERVAg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
+
+  alien-signals@3.2.1:
+    resolution: {integrity: sha512-I8FjmltrfnDFoZedi5CG8DghVYNhzb/Ijluz7tCSJH0xpd0484Kowhbb1XDYOxfJpU1p5wnM2X54dA+IfGyD1g==}
 
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
@@ -2177,6 +2214,8 @@ snapshots:
       tinyrainbow: 3.1.0
 
   acorn@8.17.0: {}
+
+  alien-signals@3.2.1: {}
 
   ansi-regex@5.0.1: {}
 
