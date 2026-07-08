@@ -3,6 +3,24 @@
 This repository contains the cab workspace. Keep changes small, explicit,
 and easy to review.
 
+## Mission
+
+Cab exists to make user interfaces multiplayer between humans and agents.
+
+The goal is not only to help agents write code. The goal is to build tools that
+let a human and an agent work together inside the same living interface, with the
+agent able to meticulously dispatch commands that inspect, navigate, and modify a
+user interface session directly. The interface itself should become a shared
+workspace: observable, reversible, eventful, and precise enough that an agent can
+act with care instead of guessing from screenshots or rewriting files from the
+outside.
+
+Changes should move cab toward that world: interfaces that expose intent as
+commands, state as understandable history, and collaboration as something the
+runtime supports instead of something bolted on after the fact. Passing tests is
+required, but it is not the whole question. Ask whether the change makes the
+human-agent interface loop clearer, safer, more observable, or more capable.
+
 ## Prerequisites
 
 Install these before working in the repo:

@@ -1,8 +1,38 @@
 # Router Design: Rewrite `@cab/router` On `@cab/store`
 
-Slice 2 of 3. Prerequisite: `store-design.md` implemented and green. The
-follow-up slice is `router-solid-design.md`, which rewrites the Solid adapter
-against the shape defined here.
+Slice 2 of 3. Prerequisite: `@cab/store` is shipped (`libs/store`, 24 passing
+tests; `libs/store/README.md` is the public API reference). The follow-up
+slice is `router-solid-design.md`, which rewrites the Solid adapter against
+the shape defined here.
+
+## Store Facts This Design Relies On
+
+The shipped `@cab/store` semantics that shape this rewrite:
+
+- **Public surface**: `Store.make(definition)`, `Store.defineSlice` /
+  `defineSlice`, `SliceDefinition`, `StoreReader`, `Sequenced`. There is no
+  options bag on `Store.make` — seeding happens through the definition's
+  `initial`, which is why the router slice is a **factory** (see below).
+- **`Store.make` needs no `Scope`** and is `runSync`-safe; the store creates
+  no long-lived fibers or effects of its own.
+- **`dispatch` is `Effect.Effect<void>` with no error channel.** `decide`
+  rejection is silent (`[]` → nothing appended, nobody notified), so the saga
+  detects acceptance by journal growth, not by catching anything. The only
+  defects are programmer errors (non-converging cascades).
+- **Dispatch is sync at the boundary with an internal command mailbox.** The
+  saga's dispatches are always _boundary_ dispatches (they run on fibers, not
+  inside subscriber listeners), so each `store.dispatch` returns with the
+  fact journaled and subscribers notified. The mailbox/cascade machinery is
+  irrelevant to the router by construction: consumers only ever receive the
+  `reader`, so nothing outside the saga can dispatch at all — cascades cannot
+  be triggered by router consumers.
+- **`stateChanges` emits the current snapshot on subscription** and each
+  folded snapshot after it — the seeding contract `@cab/router-solid`'s
+  adapter relies on.
+- **`subscribe` is change-only and listeners run untracked**; `read`/`select`
+  are synchronous and trackable. The router service itself uses none of these
+  (it consumes only Effect-land views), but they ride along on the exposed
+  `reader` for the adapter slice.
 
 ## Setpoint
 
@@ -10,7 +40,7 @@ against the shape defined here.
 becomes exactly two things:
 
 1. a **slice definition** — router commands, events, `decide`, `reduce` — per
-   the Redux-model split in `store-design.md`, and
+   the Redux-model split documented in `libs/store/README.md`, and
 2. a **process manager service** that owns the `History` I/O saga over a
    private `Store` instance.
 
@@ -60,8 +90,21 @@ together).
     saga only dispatches them after a real history outcome).
 - `reduce` is the current fold, unchanged in spirit: requested/failed leave
   state alone; committed/observed set `href`.
-- Export `routerSlice` (the `SliceDefinition`) and keep an `initial(href)`
-  helper for seeding and tests.
+- **The slice export is a factory, not a constant.** `Store.make(definition)`
+  seeds from `definition.initial` (there is no seed override on `make`), and
+  the router only learns its starting href from `history.current` at layer
+  construction. So `src/slice.ts` defines `decide` and `reduce` once at
+  module scope and exports:
+
+  ```ts
+  export function routerSlice(
+    href: string,
+  ): SliceDefinition<RouterState, RouterCommand, RouterEvent>;
+  ```
+
+  which returns `defineSlice({ name: "router", initial: initial(href), decide, reduce })`.
+  Keep exporting the `initial(href)` helper too — the adapter slice seeds its
+  Solid-side initial state with it, and tests fold against it.
 
 ### `src/router.ts`
 
@@ -93,47 +136,61 @@ request→outcome pair):
 ```text
 dispatch(NavigationRequested{href}):
   withPermit:
-    journalBefore = reader.journal length
-    store.dispatch(NavigationRequested{href})     // decide dedups
-    if journal did not grow -> return              // rejected as no-op
+    before = (yield* store.journal).length
+    yield* store.dispatch(NavigationRequested{href})   // decide dedups; returns
+                                                        // with the fact journaled
+                                                        // and subscribers notified
+    after = (yield* store.journal).length
+    if after === before -> return                       // decide rejected: no-op
     history.push(href) match:
       success -> store.dispatch(NavigationCommitted{href})
       failure -> store.dispatch(NavigationFailed{href, reason, cause?})
 ```
+
+The journal-growth check is the acceptance signal because `dispatch` has no
+error channel and requested events do not change `RouterState` — journal
+length is the only observable difference between "accepted" and "deduped".
 
 The history observation loop (unchanged sliding-buffer stream, forked scoped)
 dispatches `NavigationObserved` through the same semaphore; `decide` drops
 echoes of router-owned navigation because the committed fold already updated
 `href`.
 
-Construction: `Store.make(routerSlice)` seeded with
-`initial(yield* history.current)` — `Store.make` must accept the seed state
-(`Store.make(definition, { initial? })` override or seed via definition; the
-store slice already supports `initial` in the definition, so the layer builds
-the definition with the seeded href).
+Construction, resolved against the shipped `Store.make(definition)` API:
+
+```text
+layer = Layer.effect(Router, Effect.gen:
+  history  = yield* History
+  href     = yield* history.current
+  store    = yield* Store.make(routerSlice(href))   // factory seeds initial
+  ...saga + observation loop...
+  return { dispatch, navigate, reader: store.reader })
+```
 
 ### `src/index.ts`
 
 Exports: `Router`, `RouterShape`, `RouterCommand`, `RouterEvent`,
-`RouterState`, `routerSlice` construction helper(s), `initial`, and the
-untouched history surface. `Sequenced` re-export is unnecessary — consumers
-import it from `@cab/store`.
+`RouterState`, the `routerSlice(href)` factory, `initial`, and the untouched
+history surface. `Sequenced` and `StoreReader` are not re-exported —
+consumers import them from `@cab/store` (mirroring how `index.ts` in
+`libs/store` exports explicit names only).
 
 ## Non-Goals
 
 - No route matching, params, links, outlets, loaders, guards, blockers,
   scroll restoration, or SSR. The rewrite preserves current router scope,
   nothing more.
-- No store API additions beyond what `store-design.md` defines, unless done as
-  a store-first patch loop.
+- No store API additions beyond the shipped `@cab/store` public surface
+  (`libs/store/README.md`), unless done as a store-first patch loop with its
+  own tests.
 - No changes to `history.ts`.
 - No back-compat aliases for the old `RouterShape` members.
 
 ## Implementation Steps
 
-1. Add `@cab/store` as a workspace dependency of `@cab/router`.
+1. Add `@cab/store` as a `workspace:*` dependency of `@cab/router`.
 2. Write `src/slice.ts`: commands, events (no `sequence`), `decide`, `reduce`,
-   slice construction, `initial`. Port JSDoc per CONTRIBUTING.
+   the `routerSlice(href)` factory, `initial`. Port JSDoc per CONTRIBUTING.
 3. Delete `src/event.ts` and `src/state.ts`.
 4. Rewrite `src/router.ts`: build the seeded store, implement the saga and
    observation loop, expose `{ dispatch, navigate, reader }`. Keep
@@ -141,11 +198,15 @@ import it from `@cab/store`.
 5. Update `src/index.ts` exports.
 6. Tests:
    - `test/slice.test.ts` (replaces `state.test.ts`): `decide` dedup and
-     transition rules per command; `reduce` fold cases; fold invariant helper.
+     transition rules per command; `reduce` fold cases; fold invariant helper;
+     `routerSlice(href)` seeds `initial` correctly.
    - `test/router.test.ts`: port every existing behavioral case to the new
-     shape (reads via `reader`, journal entries as `Sequenced<RouterEvent>`),
-     including the `forkCollect` live-stream cases; add a case asserting the
-     reader exposes no `dispatch`.
+     shape (reads via `reader`, journal entries as `Sequenced<RouterEvent>`
+     with store-assigned gapless sequences), including the `forkCollect`
+     live-stream cases; add a case asserting the reader exposes no
+     `dispatch`; add a case asserting a deduped request (same href) appends
+     nothing and never calls `history.push` (the journal-growth acceptance
+     check).
    - `test/history.test.ts`: must pass unmodified.
 7. Run focused sensors, then close-out sensors. Expect `@cab/router-solid`
    to fail repo-wide `tsc` until the adapter slice lands — see the note in
