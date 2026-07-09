@@ -5,5 +5,10 @@ export default defineConfig({
     environment: "node",
     globals: false,
     include: ["test/**/*.test.ts"],
+    typecheck: {
+      enabled: true,
+      include: ["test/**/*.test-d.ts"],
+      tsconfig: "./tsconfig.vitest.json",
+    },
   },
 });

@@ -21,7 +21,7 @@ export interface StoreReader<TState extends Record<string, unknown>, TEvent> {
   /** Reads the current folded snapshot without registering a signal dependency. */
   readonly state: Effect.Effect<TState>;
 
-  /** Streams the seeded snapshot and each later folded snapshot. */
+  /** Streams the seeded snapshot and each later reference-changed folded snapshot. */
   readonly stateChanges: Stream.Stream<TState>;
 
   /** Reads one top-level key and tracks it inside reactive computations. */
@@ -165,7 +165,9 @@ export function make<TState extends Record<string, unknown>, TCommand, TEvent>(
 
               const next = events.reduce(definition.reduce, state);
 
-              yield* SubscriptionRef.set(stateRef, next);
+              if (next !== state) {
+                yield* SubscriptionRef.set(stateRef, next);
+              }
 
               yield* Effect.sync(() => {
                 notifying = true;

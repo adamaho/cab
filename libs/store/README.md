@@ -17,7 +17,7 @@ event-sourced store does not need to discover change: the event **is** the
 change description. `@cab/store` exploits that by folding events into one
 signal per state key and letting signal equality cutoff drop unchanged keys.
 
-The division of responsibility is as follows:
+The division of responsibility is as follows Redux:
 
 ```text
 you own:        commands, events, decide, reduce
@@ -212,7 +212,8 @@ untracked, so reads inside a listener never widen the subscription.
 `Effect.Effect<TState>` and `Stream.Stream<TState>` — the Effect-land views.
 `state` reads the current folded snapshot without registering a dependency.
 `stateChanges` emits the current snapshot on subscription and each folded
-snapshot after it.
+snapshot whose state reference changed. Accepted journal-only facts whose reducer
+returns the previous state reference do not emit.
 
 ### `store.journal` / `store.journalChanges`
 
@@ -328,6 +329,3 @@ const program = Effect.gen(function* () {
   gapless monotonic sequences.
 - **Loud failure over silence**: non-converging listener cascades fail with a
   defect naming the store; nothing spins or freezes silently.
-
-Design rationale, research notes, and the roadmap for deep-path subscriptions
-and collections live in `store-design.md` at the repository root.

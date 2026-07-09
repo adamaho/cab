@@ -1,8 +1,8 @@
 # Router Design: Rewrite `@cab/router` On `@cab/store`
 
-Slice 2 of 3. Prerequisite: `@cab/store` is shipped (`libs/store`, 24 passing
+Slice 2 of the store foundation series. Prerequisite: `@cab/store` is shipped (`libs/store`, 24 passing
 tests; `libs/store/README.md` is the public API reference). The follow-up
-slice is `router-solid-design.md`, which rewrites the Solid adapter against
+slice is `03-router-solid-design.md`, which rewrites the Solid adapter against
 the shape defined here.
 
 ## Store Facts This Design Relies On
@@ -58,7 +58,10 @@ Acceptance criteria:
   pure and never sees an `Effect`.
 - Router consumers cannot append navigation facts without the saga: the public
   surface exposes `dispatch`/`navigate` plus a read-only `StoreReader` — never
-  the writable store.
+  the writable store. This holds at the type level too: public `dispatch`
+  accepts only user-originated `RouterCommand` (`NavigationRequested`), so
+  outcome facts (`NavigationCommitted`/`Observed`/`Failed`) can only enter
+  the journal through a real history outcome inside the saga.
 - Router events no longer carry a hand-rolled `sequence` field; the store's
   `Sequenced` wrapper owns sequencing. The journal element type becomes
   `Sequenced<RouterEvent>`.
@@ -77,11 +80,22 @@ together).
 ### `src/slice.ts` (replaces `event.ts` + `state.ts`)
 
 - `RouterState` stays `{ readonly href: string }`.
-- `RouterCommand` keeps `NavigationRequested` and gains the saga-internal
-  cases the process manager dispatches into the store:
-  `NavigationCommitted`, `NavigationObserved`, `NavigationFailed`. Commands
-  express "something should be recorded"; `decide` decides whether it becomes
-  a fact.
+- **Commands split into two types by who may speak them.**
+  - `RouterCommand` (public, exported): user-originated intent only — today
+    just `NavigationRequested`. This is the entire vocabulary a consumer can
+    dispatch; future user intents (back, forward, replace) are added here.
+  - `RouterSliceCommand` (internal to the package, **not** exported from
+    `index.ts`): the slice's full command union —
+    `NavigationRequested | NavigationCommitted | NavigationObserved |
+NavigationFailed`. Only the saga constructs the outcome cases, and only
+    after a real history outcome. `decide` is written against
+    `RouterSliceCommand`.
+
+  This makes "consumers cannot fabricate outcome facts" a **type-level
+  guarantee**, not a convention: `NavigationCommitted` is unreachable from
+  outside the package because no exported API accepts it and its constructor
+  is not exported.
+
 - `RouterEvent` keeps its four cases but **loses the `sequence` field**.
 - `decide` absorbs the dedup currently done inline in `router.ts`:
   - `NavigationRequested`: `state.href === href → []`, else emit requested.
@@ -97,14 +111,21 @@ together).
   module scope and exports:
 
   ```ts
-  export function routerSlice(
+  const make = (
     href: string,
-  ): SliceDefinition<RouterState, RouterCommand, RouterEvent>;
+  ): SliceDefinition<RouterState, RouterSliceCommand, RouterEvent>;
+  export const RouterSlice: { readonly make: typeof make };
   ```
 
   which returns `defineSlice({ name: "router", initial: initial(href), decide, reduce })`.
   Keep exporting the `initial(href)` helper too — the adapter slice seeds its
   Solid-side initial state with it, and tests fold against it.
+
+  Note on privacy mechanics: the `RouterSliceCommand` **type** may be exported
+  (the factory's signature references it, and a type name alone mints
+  nothing); what stays private is the **constructor bundle** for the outcome
+  cases. Constructors are what create commands — withholding them is the
+  actual guarantee.
 
 ### `src/router.ts`
 
@@ -113,7 +134,12 @@ The `Router` service keeps its `Context.Service` tag and `layer` /
 
 ```ts
 export interface RouterShape {
-  /** Dispatches a user-originated router command through the navigation saga. */
+  /**
+   * Dispatches a user-originated router command through the navigation saga.
+   * Accepts `RouterCommand` (user intent) only — outcome commands
+   * (committed/observed/failed) are saga-internal and cannot be dispatched
+   * from outside the package.
+   */
   readonly dispatch: (command: RouterCommand) => Effect.Effect<void>;
 
   /** Navigates to an href by dispatching a navigation request command. */
@@ -123,6 +149,10 @@ export interface RouterShape {
   readonly reader: StoreReader<RouterState, RouterEvent>;
 }
 ```
+
+The private store is built over `RouterSliceCommand`; `dispatch` narrows the
+public entrance to `RouterCommand` and the saga widens internally when it
+dispatches outcome commands into the store.
 
 This is a deliberate, honest break from the old shape: reads move from
 `router.state` / `router.journal` to `router.reader.state` /
@@ -162,18 +192,19 @@ Construction, resolved against the shipped `Store.make(definition)` API:
 layer = Layer.effect(Router, Effect.gen:
   history  = yield* History
   href     = yield* history.current
-  store    = yield* Store.make(routerSlice(href))   // factory seeds initial
+  store    = yield* Store.make(RouterSlice.make(href))   // factory seeds initial
   ...saga + observation loop...
   return { dispatch, navigate, reader: store.reader })
 ```
 
 ### `src/index.ts`
 
-Exports: `Router`, `RouterShape`, `RouterCommand`, `RouterEvent`,
-`RouterState`, the `routerSlice(href)` factory, `initial`, and the untouched
-history surface. `Sequenced` and `StoreReader` are not re-exported —
-consumers import them from `@cab/store` (mirroring how `index.ts` in
-`libs/store` exports explicit names only).
+Exports: `Router`, `RouterShape`, `RouterCommand` (user-originated cases
+only), `RouterEvent`, `RouterState`, the `RouterSlice.make(href)` factory,
+`initial`, and the untouched history surface. **Not exported**:
+`RouterSliceCommand` and its outcome-case constructors (saga-internal), and
+`Sequenced`/`StoreReader` — consumers import those from `@cab/store`
+(mirroring how `index.ts` in `libs/store` exports explicit names only).
 
 ## Non-Goals
 
@@ -185,12 +216,15 @@ consumers import them from `@cab/store` (mirroring how `index.ts` in
   own tests.
 - No changes to `history.ts`.
 - No back-compat aliases for the old `RouterShape` members.
+- No actor attribution, timestamps, or serializable-failure changes — that
+  is slice 4 (`04-journal-metadata-design.md`), which grows `Sequenced` and
+  replaces `NavigationFailed.cause` after this slice and the adapter land.
 
 ## Implementation Steps
 
 1. Add `@cab/store` as a `workspace:*` dependency of `@cab/router`.
 2. Write `src/slice.ts`: commands, events (no `sequence`), `decide`, `reduce`,
-   the `routerSlice(href)` factory, `initial`. Port JSDoc per CONTRIBUTING.
+   the `RouterSlice.make(href)` factory, `initial`. Port JSDoc per CONTRIBUTING.
 3. Delete `src/event.ts` and `src/state.ts`.
 4. Rewrite `src/router.ts`: build the seeded store, implement the saga and
    observation loop, expose `{ dispatch, navigate, reader }`. Keep
@@ -198,15 +232,18 @@ consumers import them from `@cab/store` (mirroring how `index.ts` in
 5. Update `src/index.ts` exports.
 6. Tests:
    - `test/slice.test.ts` (replaces `state.test.ts`): `decide` dedup and
-     transition rules per command; `reduce` fold cases; fold invariant helper;
-     `routerSlice(href)` seeds `initial` correctly.
+     transition rules per command (including the internal outcome commands);
+     `reduce` fold cases; fold invariant helper; `RouterSlice.make(href)` seeds
+     `initial` correctly.
    - `test/router.test.ts`: port every existing behavioral case to the new
      shape (reads via `reader`, journal entries as `Sequenced<RouterEvent>`
      with store-assigned gapless sequences), including the `forkCollect`
      live-stream cases; add a case asserting the reader exposes no
      `dispatch`; add a case asserting a deduped request (same href) appends
      nothing and never calls `history.push` (the journal-growth acceptance
-     check).
+     check); assert at the type level (vitest `expectTypeOf` in `test/router.test-d.ts`,
+     checked via vitest typecheck mode against `tsconfig.vitest.json`) that
+     public `dispatch` rejects outcome commands.
    - `test/history.test.ts`: must pass unmodified.
 7. Run focused sensors, then close-out sensors. Expect `@cab/router-solid`
    to fail repo-wide `tsc` until the adapter slice lands — see the note in

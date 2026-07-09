@@ -1,6 +1,7 @@
 # Router Solid Design: Rewrite `@cab/router-solid` On The Store Bridge
 
-Slice 3 of 3. Prerequisites: `store-design.md` and `router-design.md`
+Slice 3 of the store foundation series. Prerequisites: `@cab/store`
+(shipped, see `libs/store/README.md`) and `02-router-design.md`
 implemented and green. This slice also carries the small `shells/playground`
 update, since the adapter rewrite removes the registry requirement.
 

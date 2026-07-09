@@ -1,17 +1,23 @@
-import { Context, Effect, Layer, PubSub, Ref, Semaphore, Stream, SubscriptionRef } from "effect";
+import { Store, type StoreReader } from "@cab/store";
+import { Context, Effect, Layer, Semaphore, Stream } from "effect";
 
-import { RouterCommand, RouterEvent } from "./event";
 import { History, type HistoryError, WindowHistory } from "./history";
-import { initial, reduce, type RouterState } from "./state";
+import {
+  RouterCommand,
+  RouterSliceCommand,
+  RouterSlice,
+  type RouterEvent,
+  type RouterState,
+} from "./slice";
 
 /**
  * Service shape for dispatching navigation commands and observing router state.
  *
  * **Details**
  *
- * `dispatch` accepts user commands only. The router assigns journal sequence
- * numbers, writes outcome events, and keeps `state` as the folded projection of
- * committed navigation events.
+ * `dispatch` and `navigate` accept user navigation intent through the router
+ * saga. Consumers observe the folded state projection and journal facts through
+ * `reader`.
  *
  * @category models
  * @since 0.0.0
@@ -32,30 +38,8 @@ export interface RouterShape {
    */
   readonly navigate: (href: string) => Effect.Effect<void>;
 
-  /**
-   * Reads the current folded router state projection.
-   */
-  readonly state: Effect.Effect<RouterState>;
-
-  /**
-   * Streams the seeded router state and each later committed or observed state change.
-   */
-  readonly stateChanges: Stream.Stream<RouterState>;
-
-  /**
-   * Reads the current in-memory event journal snapshot.
-   */
-  readonly journal: Effect.Effect<ReadonlyArray<RouterEvent>>;
-
-  /**
-   * Streams newly appended journal events for live observation.
-   *
-   * **Details**
-   *
-   * This stream is live-only. Subscribers receive events appended after their
-   * subscription starts; use `journal` to read the full retained event history.
-   */
-  readonly journalChanges: Stream.Stream<RouterEvent>;
+  /** Read-only store surface for observing router state and journal facts. */
+  readonly reader: StoreReader<RouterState, RouterEvent>;
 }
 
 /**
@@ -76,30 +60,8 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
     Effect.gen(function* () {
       const history = yield* History;
       const currentHref = yield* history.current;
-      const journalRef = yield* Ref.make<ReadonlyArray<RouterEvent>>([]);
-      const journalPubSub = yield* PubSub.unbounded<RouterEvent>();
-      const stateRef = yield* SubscriptionRef.make(initial(currentHref));
+      const store = yield* Store.make(RouterSlice.make(currentHref));
       const semaphore = yield* Semaphore.make(1);
-
-      function append(event: RouterEvent) {
-        return Effect.gen(function* () {
-          yield* Ref.update(journalRef, (events) => [...events, event]);
-          yield* PubSub.publish(journalPubSub, event);
-        });
-      }
-
-      const nextSequence = Ref.get(journalRef).pipe(Effect.map((events) => events.length));
-
-      const commit = Effect.fn("@cab/router/Router.commit")(function* (event: RouterEvent) {
-        yield* append(event);
-
-        const state = yield* SubscriptionRef.get(stateRef);
-        const next = reduce(state, event);
-
-        if (next !== state) {
-          yield* SubscriptionRef.set(stateRef, next);
-        }
-      });
 
       const observeCurrent = Effect.fn("@cab/router/Router.observeCurrent")(function* () {
         yield* semaphore.withPermit(
@@ -108,18 +70,7 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
               onFailure: () => Effect.void,
               onSuccess: (href) =>
                 Effect.gen(function* () {
-                  const state = yield* SubscriptionRef.get(stateRef);
-
-                  if (state.href === href) {
-                    return;
-                  }
-
-                  yield* commit(
-                    RouterEvent.NavigationObserved({
-                      sequence: yield* nextSequence,
-                      href,
-                    }),
-                  );
+                  yield* store.dispatch(RouterSliceCommand.NavigationObserved({ href }));
                 }),
             }),
           ),
@@ -137,26 +88,20 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
           Effect.gen(function* () {
             switch (command._tag) {
               case "NavigationRequested": {
-                const state = yield* SubscriptionRef.get(stateRef);
+                const before = (yield* store.journal).length;
 
-                if (state.href === command.href) {
-                  return;
-                }
+                yield* store.dispatch(command);
 
-                yield* commit(
-                  RouterEvent.NavigationRequested({
-                    sequence: yield* nextSequence,
-                    href: command.href,
-                  }),
-                );
+                const after = (yield* store.journal).length;
+
+                if (after === before) return;
 
                 yield* history.push(command.href).pipe(
                   Effect.matchEffect({
                     onFailure: (error) =>
                       Effect.gen(function* () {
-                        yield* commit(
-                          RouterEvent.NavigationFailed({
-                            sequence: yield* nextSequence,
+                        yield* store.dispatch(
+                          RouterSliceCommand.NavigationFailed({
                             href: command.href,
                             reason: error.reason,
                             ...(error.cause === undefined ? {} : { cause: error.cause }),
@@ -165,9 +110,8 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
                       }),
                     onSuccess: () =>
                       Effect.gen(function* () {
-                        yield* commit(
-                          RouterEvent.NavigationCommitted({
-                            sequence: yield* nextSequence,
+                        yield* store.dispatch(
+                          RouterSliceCommand.NavigationCommitted({
                             href: command.href,
                           }),
                         );
@@ -187,10 +131,7 @@ export class Router extends Context.Service<Router, RouterShape>()("@cab/router/
       return {
         dispatch,
         navigate,
-        state: SubscriptionRef.get(stateRef),
-        stateChanges: SubscriptionRef.changes(stateRef),
-        journal: Ref.get(journalRef),
-        journalChanges: Stream.fromPubSub(journalPubSub),
+        reader: store.reader,
       };
     }),
   );

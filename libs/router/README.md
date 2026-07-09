@@ -1,11 +1,13 @@
 # @cab/router
 
-`@cab/router` is the navigation library for cab applications.
+`@cab/router` is the event-sourced navigation library for cab applications.
 
-It gives applications a small, typed API for changing routes, observing the
-current route, and inspecting the navigation facts that led to the current
-state. The package is built on Effect and is designed to be consumed from shell
-applications and UI adapters.
+Writes go through a navigation saga: user intent is dispatched as a command,
+the saga performs the browser history mutation, and every step — requested,
+committed, observed, failed — is recorded as a sequenced journal fact. Reads
+come from a store reader: the current route projection, live streams of state
+and facts, and fine-grained reactive reads. The package is framework-agnostic
+and built on `effect` and `@cab/store`.
 
 ## Why This Exists
 
@@ -20,125 +22,50 @@ needs to answer basic questions:
 - What happened immediately before this state?
 - Did concurrent navigation requests run in a predictable order?
 
-`@cab/router` keeps that context available.
-
-Each navigation request is recorded as a fact. Successful and failed outcomes
-are recorded as facts too. The current route is then derived from those facts.
-That gives consumers a simple model:
+`@cab/router` keeps that context available. It is a slice on `@cab/store`:
 
 ```text
-navigate -> journal facts -> current state
+you own (as a consumer): dispatching intent, observing state and facts
+the router owns:         the history I/O saga, dedup rules, the fold
+the store owns:          journaling, sequencing, serialization, reactivity
 ```
 
-This is useful for people, tests, and coding agents. An agent can navigate by
-dispatching one typed command, observe the emitted journal facts, read the
-projected state, and decide what to do next from concrete feedback instead of
-guessing from the DOM alone.
+This is useful for people, tests, and coding agents. An agent navigates by
+dispatching one typed command, monitors the emitted journal facts, reads the
+projected state, and decides what to do next from concrete feedback instead of
+guessing from the DOM.
 
 ## Current Scope
 
-This package currently supports programmatic navigation to an href and observing
-browser back/forward navigation.
+Programmatic navigation to an href, observation of browser back/forward
+navigation, and full navigation history as journal facts.
 
 It intentionally does not yet provide:
 
-- route matching
-- route params
-- loaders or actions
-- redirects
+- route matching or route params
+- loaders, actions, or redirects
 - guards or blockers
 - scroll restoration
+- back/forward commands (planned; requires growing the history surface)
 
-Those features can be added later without changing the core consumer model:
-navigation remains facts plus projected state.
+Those features can be added without changing the consumer model: navigation
+remains commands in, facts and projected state out.
 
 ## Installation
 
 Inside this workspace, add the router to a shell or feature package:
 
 ```bash
-pnpm --filter=@cab/shell-playground add @cab/router@workspace:*
+pnpm --filter=@cab/your-package add @cab/router@workspace:*
 ```
 
-For Solid UI bindings, add the Solid atom adapter in the shell package:
+`@cab/router` depends on `effect` and `@cab/store`, both managed through the
+workspace. Solid applications should render route state through the
+`@cab/router-solid` adapter rather than consuming this package directly.
 
-```bash
-pnpm --filter=@cab/shell-playground add @cab/router-solid@workspace:*
-```
+## Quick Start
 
-`@cab/router` depends on `effect`, which is managed through the workspace
-catalog.
-
-## Core Concepts
-
-### State
-
-State is the current route projection:
-
-```ts
-interface RouterState {
-  readonly href: string;
-}
-```
-
-Use state when rendering the current route or showing the current href.
-
-### Journal
-
-The journal is the retained list of navigation facts for the current router
-session.
-
-Current event variants are:
-
-```text
-NavigationRequested
-NavigationCommitted
-NavigationObserved
-NavigationFailed
-```
-
-Use the journal for debugging, diagnostics, tests, and agent feedback.
-
-### Commands
-
-Commands represent caller intent. Today there is one command:
-
-```text
-NavigationRequested({ href })
-```
-
-Most consumers should use `router.navigate(href)`. Use `router.dispatch(...)`
-when command-shaped input is useful.
-
-## Router Service API
-
-```ts
-interface RouterShape {
-  readonly dispatch: (command: RouterCommand) => Effect.Effect<void>;
-  readonly navigate: (href: string) => Effect.Effect<void>;
-  readonly state: Effect.Effect<RouterState>;
-  readonly stateChanges: Stream.Stream<RouterState>;
-  readonly journal: Effect.Effect<ReadonlyArray<RouterEvent>>;
-  readonly journalChanges: Stream.Stream<RouterEvent>;
-}
-```
-
-Use these fields as follows:
-
-- `navigate` changes the browser route to an href.
-- `dispatch` accepts typed router commands.
-- `state` reads the current route state.
-- `stateChanges` streams the initial state and later committed or observed state
-  changes.
-- `journal` reads the retained navigation facts.
-- `journalChanges` streams newly appended navigation facts after subscription.
-
-`journalChanges` is live-only. It does not replay old events to new
-subscribers. Use `journal` when you need the retained history.
-
-## Basic Usage
-
-### Navigate And Read State
+Navigate, read the projection, and inspect the facts that produced it:
 
 ```ts
 import { Effect } from "effect";
@@ -149,35 +76,132 @@ const program = Effect.gen(function* () {
 
   yield* router.navigate("/settings");
 
-  return yield* router.state;
+  const state = yield* router.reader.state;
+  console.log(state.href); // "/settings"
+
+  console.log(yield* router.reader.journal);
+  // [
+  //   { sequence: 0, event: { _tag: "NavigationRequested", href: "/settings" } },
+  //   { sequence: 1, event: { _tag: "NavigationCommitted", href: "/settings" } },
+  // ]
+
+  // Navigating to the current href is a silent no-op: decide rejects it,
+  // nothing is journaled, no history push happens.
+  yield* router.navigate("/settings");
 });
 
-const state = await Effect.runPromise(Effect.provide(program, Router.layerBrowser));
-
-console.log(state.href); // "/settings"
+await Effect.runPromise(Effect.provide(program, Router.layerBrowser));
 ```
 
-`Router.layerBrowser` wires the router to browser history.
+`Router.layerBrowser` wires the router to browser history. Browser
+back/forward is observed through `popstate`: when the location changes outside
+the router, a `NavigationObserved` fact is appended and the projection updates.
 
-Browser back/forward navigation is observed through `popstate`. When the browser
-location changes outside `router.navigate` or `router.dispatch`, the router
-appends a `NavigationObserved` fact and updates projected state to the observed
-href.
+## Core Concepts
 
-### Dispatch A Command
+### Commands In, Facts Out
 
-```ts
-import { Effect } from "effect";
-import { Router, RouterCommand } from "@cab/router";
+`RouterCommand` is caller intent — today a single case,
+`NavigationRequested({ href })`. Dispatching it runs the navigation saga:
+record the request, perform `history.push`, record the outcome.
 
-const program = Effect.gen(function* () {
-  const router = yield* Router;
+`RouterEvent` is the journal fact vocabulary:
 
-  yield* router.dispatch(RouterCommand.NavigationRequested({ href: "/billing" }));
-});
+```text
+NavigationRequested   accepted caller intent
+NavigationCommitted   the history mutation succeeded
+NavigationObserved    the browser navigated on its own (back/forward)
+NavigationFailed      the history mutation failed (with a reason)
 ```
 
-### Observe State Changes
+Outcome facts cannot be fabricated: public `dispatch` accepts only
+`RouterCommand`, and the outcome command constructors never leave the package.
+A `NavigationCommitted` in the journal means a history mutation really
+happened. This holds at the type level, not by convention.
+
+### The Reader
+
+All reads live on `router.reader`, a `StoreReader<RouterState, RouterEvent>`
+from `@cab/store`: Effect-land views (`state`, `stateChanges`, `journal`,
+`journalChanges`) plus synchronous fine-grained reactive reads (`read`,
+`select`, `subscribe`). Writes live on the service (`navigate`, `dispatch`).
+There is no way to modify router state through the reader.
+
+### State Versus Journal
+
+Use the state projection (`{ readonly href: string }`) for rendering. Use the
+journal when you need context: debugging a navigation issue, recording
+diagnostics, waiting for a specific fact in a test, or giving a coding agent
+feedback about what happened after it navigated. The projection is the
+rendering API; the journal is the explanation of how it came to be.
+
+## Public API
+
+### `Router` / `Router.layer` / `Router.layerBrowser`
+
+The Effect service tag and its layers. `Router.layer` requires a `History`
+service; `Router.layerBrowser` provides the `window.history`-backed one.
+Construction seeds the projection from the history service's current href.
+
+### `router.navigate(href)`
+
+`(href: string) => Effect.Effect<void>`
+
+Dispatches a navigation request for the href. Returns `void` by design:
+failures are recorded as `NavigationFailed` facts, not thrown, so there is
+nothing to await or catch. Navigating to the current href is a silent no-op.
+
+### `router.dispatch(command)`
+
+`(command: RouterCommand) => Effect.Effect<void>`
+
+The command-shaped entrance to the same saga. Accepts user-originated
+`RouterCommand` only — outcome commands are saga-internal and rejected at the
+type level.
+
+### `router.reader`
+
+`StoreReader<RouterState, RouterEvent>` — see the `@cab/store` README for the
+full contract of each member. In router terms:
+
+- `state` reads the current `{ href }` projection.
+- `stateChanges` streams the seeded projection and each later change
+  (committed or observed navigation; requested and failed facts leave state
+  untouched and do not emit).
+- `read("href")` is a synchronous reactive read, trackable inside signal
+  computations.
+- `select(fn)` derives a memoized reactive value over reads.
+- `subscribe("href", cb)` fires on change only and returns unsubscribe.
+- `journal` reads the retained facts as `Sequenced<RouterEvent>`.
+- `journalChanges` streams newly appended facts, live-only — use `journal`
+  for retained history.
+
+### `RouterState` / `RouterCommand` / `RouterEvent`
+
+The projection type, the user command constructors, and the journal fact
+constructors (`Data.taggedEnum` bundles with `$match`/`$is`). Journal entries
+wrap events as `Sequenced<RouterEvent>` — import `Sequenced` from
+`@cab/store`.
+
+### `RouterSlice.make(href)` / `initial(href)`
+
+The slice definition factory and initial-projection helper. Application code
+rarely needs these; they exist for the adapter package, tests, and fold
+assertions (`journal.map(({ event }) => event).reduce(slice.reduce, initial(href))`).
+
+### History surface
+
+`History` (service tag), `WindowHistory.layer`, `MemoryHistory.make(href)`,
+and `HistoryError`/`HistoryErrorReason`. `MemoryHistory` is the in-memory
+test double: `pushes` records router-owned navigation for assertions and
+`observe(href)` simulates browser-originated navigation.
+
+## Examples
+
+### Observing navigation facts
+
+Useful for debugging, devtools, analytics, integration tests, and agent
+feedback loops:
 
 ```ts
 import { Effect, Stream } from "effect";
@@ -186,80 +210,42 @@ import { Router } from "@cab/router";
 const program = Effect.gen(function* () {
   const router = yield* Router;
 
-  yield* router.stateChanges.pipe(
-    Stream.tap((state) => Effect.sync(() => console.log("href", state.href))),
-    Stream.runDrain,
+  yield* router.reader.journalChanges.pipe(
+    Stream.runForEach((fact) =>
+      Effect.log(`[router:${fact.sequence}] ${fact.event._tag} -> ${fact.event.href}`),
+    ),
+    Effect.forkScoped,
   );
+
+  yield* router.navigate("/billing");
+  // [router:0] NavigationRequested -> /billing
+  // [router:1] NavigationCommitted -> /billing
 });
 ```
 
-Route rendering should normally depend on `state` or `stateChanges`.
+### Fine-grained reactive reads
 
-### Observe Navigation Facts
+The reader's synchronous surface is what framework adapters build on — one
+subscription per key, change-only:
 
 ```ts
-import { Effect, Stream } from "effect";
-import { Router } from "@cab/router";
+const router = yield * Router;
 
-const program = Effect.gen(function* () {
-  const router = yield* Router;
-
-  yield* router.journalChanges.pipe(
-    Stream.tap((event) => Effect.sync(() => console.log("[router:event]", event))),
-    Stream.runDrain,
-  );
+const unsubscribe = router.reader.subscribe("href", (href) => {
+  console.log("navigated to", href);
 });
+
+const section = router.reader.select(() => router.reader.read("href").split("/")[1]);
+
+yield * router.navigate("/settings/profile");
+console.log(section()); // "settings"
+
+unsubscribe();
 ```
 
-This is useful for debugging, devtools, analytics, integration tests, and agent
-feedback loops.
+### Testing with memory history
 
-## Solid Usage
-
-`@cab/router` is framework-agnostic and exports no reactivity bindings.
-Solid applications should use the `@cab/router-solid` adapter, which owns all
-atom construction and exposes `createBrowserRouter`, `RouterProvider`, and
-hooks:
-
-```tsx
-import {
-  createBrowserRouter,
-  RouterProvider,
-  useRouterNavigate,
-  useRouterState,
-} from "@cab/router-solid";
-import { RegistryProvider } from "@effect/atom-solid";
-
-const router = createBrowserRouter();
-
-export function App() {
-  return (
-    <RegistryProvider>
-      <RouterProvider router={router}>
-        <Routes />
-      </RouterProvider>
-    </RegistryProvider>
-  );
-}
-
-function Routes() {
-  const state = useRouterState();
-  const navigate = useRouterNavigate();
-
-  return (
-    <main>
-      <p>Current href: {state().href}</p>
-      <button onClick={() => navigate("/settings")} type="button">
-        Settings
-      </button>
-    </main>
-  );
-}
-```
-
-## Testing With Memory History
-
-Use `MemoryHistory.make` to test the router without a browser.
+`MemoryHistory.make` runs the router without a browser:
 
 ```ts
 import { Effect, Layer } from "effect";
@@ -273,53 +259,35 @@ const program = Effect.gen(function* () {
       const router = yield* Router;
 
       yield* router.navigate("/settings");
-      yield* memory.observe("/account");
+      yield* memory.observe("/account"); // simulate browser back/forward
 
       return {
-        state: yield* router.state,
-        journal: yield* router.journal,
+        state: yield* router.reader.state,
+        journal: yield* router.reader.journal,
       };
     }),
     Router.layer.pipe(Layer.provide(memory.layer)),
   );
 
-  return {
-    ...result,
-    pushedHrefs: yield* memory.pushes,
-  };
+  console.log(result.state); // { href: "/account" }
+  console.log(yield* memory.pushes); // ["/settings"] — observe() records no push
 });
 ```
 
-`memory.observe(href)` simulates browser-originated navigation such as
-back/forward. It updates the memory location and emits a history change without
-recording a push.
+## Guarantees
 
-## Behavior Guarantees
-
-- Navigating to the current href is a silent no-op.
-- Non-deduped navigations append a requested event and one outcome event.
-- Successful navigation updates browser history and projected state.
-- Failed navigation records a failed event and leaves projected state unchanged.
-- Browser back/forward navigation appends an observed event and updates projected
-  state.
-- Observed navigation to the current href is a silent no-op.
-- Concurrent navigations are processed one at a time.
-- `journalChanges` emits facts in journal order.
-- `stateChanges` emits the seeded state and later committed or observed state
-  changes.
-
-## When To Use The Journal
-
-Use route state for rendering. Use the journal when you need context.
-
-Good journal use cases:
-
-- debugging a navigation issue
-- displaying a development timeline
-- recording navigation diagnostics
-- observing failed navigation attempts
-- waiting for a specific event in a test
-- giving a coding agent feedback about what happened after it navigated
-
-Avoid using the journal as the primary rendering model. The state projection is
-the rendering API; the journal is the explanation of how that state came to be.
+- **Facts never lie**: outcome facts can only be produced by the saga after a
+  real history outcome; consumers cannot fabricate them (type-level).
+- **Fold invariant**: replaying the journal over `initial(seedHref)` always
+  reproduces the current projection.
+- **Dedup**: navigating or observing to the current href appends nothing,
+  notifies nobody, and never touches browser history.
+- **Accepted navigation is two facts**: one requested fact plus exactly one
+  outcome fact (committed or failed). Failed navigation leaves the projection
+  unchanged.
+- **External navigation is observed**: browser back/forward appends a
+  `NavigationObserved` fact and updates the projection.
+- **Serialized sagas**: concurrent navigations process one at a time; journal
+  facts appear in journal order with gapless sequences.
+- **Change-only streams**: `stateChanges` emits only when the projection
+  actually changed; journal-only facts (requested, failed) do not emit.

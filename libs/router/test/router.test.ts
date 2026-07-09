@@ -1,14 +1,25 @@
+import type { Sequenced } from "@cab/store";
 import { describe, expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Layer, PubSub, Ref, Stream } from "effect";
 import { vi } from "vitest";
 
-import { RouterCommand, RouterEvent } from "../src/event";
 import { History, HistoryError, MemoryHistory } from "../src/history";
 import { Router } from "../src/router";
-import { initial, reduce } from "../src/state";
+import {
+  RouterCommand,
+  RouterEvent,
+  RouterSlice,
+  type RouterEvent as RouterEventType,
+} from "../src/slice";
 
-function fold(initialHref: string, events: ReadonlyArray<RouterEvent>) {
-  return events.reduce(reduce, initial(initialHref));
+function fact(sequence: number, event: RouterEventType): Sequenced<RouterEventType> {
+  return { sequence, event };
+}
+
+function fold(initialHref: string, journal: ReadonlyArray<Sequenced<RouterEventType>>) {
+  const slice = RouterSlice.make(initialHref);
+
+  return journal.map(({ event }) => event).reduce(slice.reduce, slice.initial);
 }
 
 function withRouter<A, E>(memory: MemoryHistory, program: Effect.Effect<A, E, Router>) {
@@ -37,7 +48,7 @@ describe("router", () => {
         memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          return yield* router.state;
+          return yield* router.reader.state;
         }),
       );
 
@@ -58,18 +69,18 @@ describe("router", () => {
           yield* router.navigate("/billing");
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
       );
 
       expect(result.state).toEqual({ href: "/billing" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-        RouterEvent.NavigationCommitted({ sequence: 1, href: "/settings" }),
-        RouterEvent.NavigationRequested({ sequence: 2, href: "/billing" }),
-        RouterEvent.NavigationCommitted({ sequence: 3, href: "/billing" }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/settings" })),
+        fact(1, RouterEvent.NavigationCommitted({ href: "/settings" })),
+        fact(2, RouterEvent.NavigationRequested({ href: "/billing" })),
+        fact(3, RouterEvent.NavigationCommitted({ href: "/billing" })),
       ]);
       expect(fold("/", result.journal)).toEqual(result.state);
       expect(yield* memory.pushes).toEqual(["/settings", "/billing"]);
@@ -84,7 +95,7 @@ describe("router", () => {
         memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const fiber = yield* forkCollect(router.journalChanges, 2);
+          const fiber = yield* forkCollect(router.reader.journalChanges, 2);
 
           yield* router.navigate("/settings");
 
@@ -93,8 +104,8 @@ describe("router", () => {
       );
 
       expect(events).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-        RouterEvent.NavigationCommitted({ sequence: 1, href: "/settings" }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/settings" })),
+        fact(1, RouterEvent.NavigationCommitted({ href: "/settings" })),
       ]);
     }),
   );
@@ -111,8 +122,32 @@ describe("router", () => {
           yield* router.navigate("/");
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
+          };
+        }),
+      );
+
+      expect(result.state).toEqual({ href: "/" });
+      expect(result.journal).toEqual([]);
+      expect(yield* memory.pushes).toEqual([]);
+    }),
+  );
+
+  it.effect("deduped request appends nothing and never calls history push", () =>
+    Effect.gen(function* () {
+      const memory = yield* MemoryHistory.make("/");
+
+      const result = yield* withRouter(
+        memory,
+        Effect.gen(function* () {
+          const router = yield* Router;
+
+          yield* router.dispatch(RouterCommand.NavigationRequested({ href: "/" }));
+
+          return {
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
       );
@@ -131,7 +166,7 @@ describe("router", () => {
         memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const fiber = yield* forkCollect(router.journalChanges, 1);
+          const fiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* router.navigate("/");
           yield* router.navigate("/settings");
@@ -140,9 +175,7 @@ describe("router", () => {
         }),
       );
 
-      expect(firstEvent).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-      ]);
+      expect(firstEvent).toEqual([fact(0, RouterEvent.NavigationRequested({ href: "/settings" }))]);
     }),
   );
 
@@ -155,13 +188,13 @@ describe("router", () => {
         Effect.gen(function* () {
           const router = yield* Router;
           const stateReady = yield* Deferred.make<void>();
-          const stateFiber = yield* router.stateChanges.pipe(
+          const stateFiber = yield* router.reader.stateChanges.pipe(
             Stream.tap(() => Deferred.succeed(stateReady, undefined)),
             Stream.take(2),
             Stream.runCollect,
             Effect.forkChild,
           );
-          const eventFiber = yield* forkCollect(router.journalChanges, 1);
+          const eventFiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
           yield* memory.observe("/external");
@@ -169,18 +202,18 @@ describe("router", () => {
 
           return {
             event: yield* Fiber.join(eventFiber),
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
       );
 
       expect(result.state).toEqual({ href: "/external" });
       expect(result.event).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external" })),
       ]);
       expect(result.journal).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external" })),
       ]);
       expect(fold("/", result.journal)).toEqual(result.state);
       expect(yield* memory.pushes).toEqual([]);
@@ -196,13 +229,13 @@ describe("router", () => {
         Effect.gen(function* () {
           const router = yield* Router;
           const stateReady = yield* Deferred.make<void>();
-          const statesFiber = yield* router.stateChanges.pipe(
+          const statesFiber = yield* router.reader.stateChanges.pipe(
             Stream.tap(() => Deferred.succeed(stateReady, undefined)),
             Stream.take(2),
             Stream.runCollect,
             Effect.forkChild,
           );
-          const eventsFiber = yield* forkCollect(router.journalChanges, 1);
+          const eventsFiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
           yield* memory.observe("/external");
@@ -216,7 +249,7 @@ describe("router", () => {
 
       expect(result.states).toEqual([{ href: "/" }, { href: "/external" }]);
       expect(result.events).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external" })),
       ]);
     }),
   );
@@ -229,7 +262,7 @@ describe("router", () => {
         memory,
         Effect.gen(function* () {
           const router = yield* Router;
-          const fiber = yield* forkCollect(router.journalChanges, 1);
+          const fiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           // Both valid interleavings pass: the consumer can process `/` before
           // `/external`, or the sliding buffer can coalesce directly to `/external`.
@@ -238,16 +271,16 @@ describe("router", () => {
 
           return {
             event: yield* Fiber.join(fiber),
-            journal: yield* router.journal,
+            journal: yield* router.reader.journal,
           };
         }),
       );
 
       expect(result.event).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external" })),
       ]);
       expect(result.journal).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external" })),
       ]);
     }),
   );
@@ -272,8 +305,8 @@ describe("router", () => {
           yield* router.navigate("/settings");
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
         Router.layer.pipe(Layer.provide(historyLayer)),
@@ -281,13 +314,15 @@ describe("router", () => {
 
       expect(result.state).toEqual({ href: "/" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-        RouterEvent.NavigationFailed({
-          sequence: 1,
-          href: "/settings",
-          reason: "push-failed",
-          cause,
-        }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/settings" })),
+        fact(
+          1,
+          RouterEvent.NavigationFailed({
+            href: "/settings",
+            reason: "push-failed",
+            cause,
+          }),
+        ),
       ]);
       expect(fold("/", result.journal)).toEqual(result.state);
       expect(yield* Ref.get(attemptsRef)).toEqual(["/settings"]);
@@ -308,7 +343,7 @@ describe("router", () => {
       const events = yield* Effect.provide(
         Effect.gen(function* () {
           const router = yield* Router;
-          const fiber = yield* forkCollect(router.journalChanges, 2);
+          const fiber = yield* forkCollect(router.reader.journalChanges, 2);
 
           yield* router.navigate("/settings");
 
@@ -318,13 +353,15 @@ describe("router", () => {
       );
 
       expect(events).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-        RouterEvent.NavigationFailed({
-          sequence: 1,
-          href: "/settings",
-          reason: "push-failed",
-          cause,
-        }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/settings" })),
+        fact(
+          1,
+          RouterEvent.NavigationFailed({
+            href: "/settings",
+            reason: "push-failed",
+            cause,
+          }),
+        ),
       ]);
     }),
   );
@@ -338,7 +375,7 @@ describe("router", () => {
         Effect.gen(function* () {
           const router = yield* Router;
           const ready = yield* Deferred.make<void>();
-          const fiber = yield* router.stateChanges.pipe(
+          const fiber = yield* router.reader.stateChanges.pipe(
             Stream.tap(() => Deferred.succeed(ready, undefined)),
             Stream.take(3),
             Stream.runCollect,
@@ -385,8 +422,8 @@ describe("router", () => {
           const second = yield* router.navigate("/b").pipe(Effect.forkChild);
 
           expect(yield* Ref.get(pushesRef)).toEqual(["/a"]);
-          expect(yield* router.journal).toEqual([
-            RouterEvent.NavigationRequested({ sequence: 0, href: "/a" }),
+          expect(yield* router.reader.journal).toEqual([
+            fact(0, RouterEvent.NavigationRequested({ href: "/a" })),
           ]);
 
           yield* Deferred.succeed(releaseFirst, undefined);
@@ -394,8 +431,8 @@ describe("router", () => {
           yield* Fiber.join(second);
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
         Router.layer.pipe(Layer.provide(historyLayer)),
@@ -403,10 +440,10 @@ describe("router", () => {
 
       expect(result.state).toEqual({ href: "/b" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/a" }),
-        RouterEvent.NavigationCommitted({ sequence: 1, href: "/a" }),
-        RouterEvent.NavigationRequested({ sequence: 2, href: "/b" }),
-        RouterEvent.NavigationCommitted({ sequence: 3, href: "/b" }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/a" })),
+        fact(1, RouterEvent.NavigationCommitted({ href: "/a" })),
+        fact(2, RouterEvent.NavigationRequested({ href: "/b" })),
+        fact(3, RouterEvent.NavigationCommitted({ href: "/b" })),
       ]);
       expect(fold("/", result.journal)).toEqual(result.state);
       expect(yield* Ref.get(pushesRef)).toEqual(["/a", "/b"]);
@@ -425,16 +462,16 @@ describe("router", () => {
           yield* router.navigate("/settings");
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
       );
 
       expect(result.state).toEqual({ href: "/settings" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/settings" }),
-        RouterEvent.NavigationCommitted({ sequence: 1, href: "/settings" }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/settings" })),
+        fact(1, RouterEvent.NavigationCommitted({ href: "/settings" })),
       ]);
       expect(yield* memory.pushes).toEqual(["/settings"]);
     }),
@@ -479,8 +516,8 @@ describe("router", () => {
           yield* Deferred.await(pushStarted);
           yield* observe("/a");
 
-          expect(yield* router.journal).toEqual([
-            RouterEvent.NavigationRequested({ sequence: 0, href: "/c" }),
+          expect(yield* router.reader.journal).toEqual([
+            fact(0, RouterEvent.NavigationRequested({ href: "/c" })),
           ]);
 
           yield* Ref.set(reReadArmedRef, true);
@@ -489,8 +526,8 @@ describe("router", () => {
           yield* Deferred.await(reReadAfterRelease);
 
           return {
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
             current: yield* Ref.get(locationRef),
           };
         }),
@@ -500,8 +537,8 @@ describe("router", () => {
       expect(result.current).toBe("/c");
       expect(result.state).toEqual({ href: "/c" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 0, href: "/c" }),
-        RouterEvent.NavigationCommitted({ sequence: 1, href: "/c" }),
+        fact(0, RouterEvent.NavigationRequested({ href: "/c" })),
+        fact(1, RouterEvent.NavigationCommitted({ href: "/c" })),
       ]);
     }),
   );
@@ -537,8 +574,8 @@ describe("router", () => {
       const result = yield* Effect.provide(
         Effect.gen(function* () {
           const router = yield* Router;
-          const stateFiber = yield* forkCollect(router.stateChanges, 2);
-          const fiber = yield* forkCollect(router.journalChanges, 1);
+          const stateFiber = yield* forkCollect(router.reader.stateChanges, 2);
+          const fiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Ref.set(failNextRef, true);
           yield* observe("/x");
@@ -548,16 +585,16 @@ describe("router", () => {
           return {
             events: yield* Fiber.join(fiber),
             states: yield* Fiber.join(stateFiber),
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
           };
         }),
         Router.layer.pipe(Layer.provide(historyLayer)),
       );
 
-      expect(result.events).toEqual([RouterEvent.NavigationObserved({ sequence: 0, href: "/y" })]);
+      expect(result.events).toEqual([fact(0, RouterEvent.NavigationObserved({ href: "/y" }))]);
       expect(result.states).toEqual([{ href: "/" }, { href: "/y" }]);
-      expect(result.journal).toEqual([RouterEvent.NavigationObserved({ sequence: 0, href: "/y" })]);
+      expect(result.journal).toEqual([fact(0, RouterEvent.NavigationObserved({ href: "/y" }))]);
       expect(result.state).toEqual({ href: "/y" });
       expect(fold("/", result.journal)).toEqual(result.state);
     }),
@@ -603,8 +640,8 @@ describe("router", () => {
 
         return yield* Effect.gen(function* () {
           const router = yield* Router;
-          const popStatesFiber = yield* forkCollect(router.stateChanges, 2);
-          const popEventsFiber = yield* forkCollect(router.journalChanges, 1);
+          const popStatesFiber = yield* forkCollect(router.reader.stateChanges, 2);
+          const popEventsFiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Deferred.await(listenerReady);
           yield* Effect.sync(() => {
@@ -614,7 +651,7 @@ describe("router", () => {
 
           const popStates = yield* Fiber.join(popStatesFiber);
           const popEvents = yield* Fiber.join(popEventsFiber);
-          const navigateEventsFiber = yield* forkCollect(router.journalChanges, 2);
+          const navigateEventsFiber = yield* forkCollect(router.reader.journalChanges, 2);
 
           yield* router.navigate("/pushed");
 
@@ -622,8 +659,8 @@ describe("router", () => {
             popStates,
             popEvents,
             navigateEvents: yield* Fiber.join(navigateEventsFiber),
-            state: yield* router.state,
-            journal: yield* router.journal,
+            state: yield* router.reader.state,
+            journal: yield* router.reader.journal,
             pushCalls: fakeWindow.pushCalls,
           };
         }).pipe(Effect.provide(Router.layerBrowser));
@@ -631,19 +668,35 @@ describe("router", () => {
 
       expect(result.popStates).toEqual([{ href: "/" }, { href: "/external?x=1#details" }]);
       expect(result.popEvents).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external?x=1#details" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external?x=1#details" })),
       ]);
       expect(result.navigateEvents).toEqual([
-        RouterEvent.NavigationRequested({ sequence: 1, href: "/pushed" }),
-        RouterEvent.NavigationCommitted({ sequence: 2, href: "/pushed" }),
+        fact(1, RouterEvent.NavigationRequested({ href: "/pushed" })),
+        fact(2, RouterEvent.NavigationCommitted({ href: "/pushed" })),
       ]);
       expect(result.state).toEqual({ href: "/pushed" });
       expect(result.journal).toEqual([
-        RouterEvent.NavigationObserved({ sequence: 0, href: "/external?x=1#details" }),
-        RouterEvent.NavigationRequested({ sequence: 1, href: "/pushed" }),
-        RouterEvent.NavigationCommitted({ sequence: 2, href: "/pushed" }),
+        fact(0, RouterEvent.NavigationObserved({ href: "/external?x=1#details" })),
+        fact(1, RouterEvent.NavigationRequested({ href: "/pushed" })),
+        fact(2, RouterEvent.NavigationCommitted({ href: "/pushed" })),
       ]);
       expect(result.pushCalls).toEqual(["/pushed"]);
+    }),
+  );
+
+  it.effect("exposes a reader without dispatch", () =>
+    Effect.gen(function* () {
+      const memory = yield* MemoryHistory.make("/");
+
+      const hasDispatch = yield* withRouter(
+        memory,
+        Effect.gen(function* () {
+          const router = yield* Router;
+          return "dispatch" in router.reader;
+        }),
+      );
+
+      expect(hasDispatch).toBe(false);
     }),
   );
 });

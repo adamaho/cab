@@ -15,6 +15,7 @@ type SettingsCommand = Data.TaggedEnum<{
   BazChanged: { readonly baz: string };
   BazChangedWithoutDedup: { readonly baz: string };
   FooAndBazChanged: { readonly foo: string; readonly baz: string };
+  Touched: { readonly id: string };
 }>;
 
 const SettingsCommand = Data.taggedEnum<SettingsCommand>();
@@ -22,6 +23,7 @@ const SettingsCommand = Data.taggedEnum<SettingsCommand>();
 type SettingsEvent = Data.TaggedEnum<{
   FooChanged: { readonly foo: string };
   BazChanged: { readonly baz: string };
+  Touched: { readonly id: string };
 }>;
 
 const SettingsEvent = Data.taggedEnum<SettingsEvent>();
@@ -44,6 +46,8 @@ const settings = Store.defineSlice({
           SettingsEvent.FooChanged({ foo: command.foo }),
           SettingsEvent.BazChanged({ baz: command.baz }),
         ];
+      case "Touched":
+        return [SettingsEvent.Touched({ id: command.id })];
     }
   },
   reduce: (state: SettingsState, event: SettingsEvent): SettingsState => {
@@ -52,6 +56,8 @@ const settings = Store.defineSlice({
         return { ...state, foo: event.foo };
       case "BazChanged":
         return { ...state, baz: event.baz };
+      case "Touched":
+        return state;
     }
   },
 });
@@ -506,7 +512,46 @@ describe("store", () => {
     }),
   );
 
-  it.effect("stateChanges emits the seeded snapshot and each folded snapshot", () =>
+  it.effect("identity folds append journal facts without state or key notifications", () =>
+    Effect.gen(function* () {
+      const store = yield* Store.make(settings);
+      const ready = yield* Deferred.make<void>();
+      const statesFiber = yield* store.stateChanges.pipe(
+        Stream.tap(() => Deferred.succeed(ready, undefined)),
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const fooValues: Array<string> = [];
+      const bazValues: Array<string> = [];
+      const unsubscribeFoo = store.subscribe("foo", (foo) => fooValues.push(foo));
+      const unsubscribeBaz = store.subscribe("baz", (baz) => bazValues.push(baz));
+
+      yield* Deferred.await(ready);
+      yield* store.dispatch(SettingsCommand.Touched({ id: "touch-1" }));
+
+      expect(yield* store.journal).toEqual([
+        { sequence: 0, event: SettingsEvent.Touched({ id: "touch-1" }) },
+      ]);
+      expect(yield* store.state).toBe(settingsInitial);
+      expect(fooValues).toEqual([]);
+      expect(bazValues).toEqual([]);
+
+      yield* store.dispatch(SettingsCommand.FooChanged({ foo: "next" }));
+
+      expect(yield* Fiber.join(statesFiber)).toEqual([
+        { foo: "bar", baz: "ball" },
+        { foo: "next", baz: "ball" },
+      ]);
+      expect(fooValues).toEqual(["next"]);
+      expect(bazValues).toEqual([]);
+
+      unsubscribeFoo();
+      unsubscribeBaz();
+    }),
+  );
+
+  it.effect("stateChanges emits the seeded snapshot and each changed folded snapshot", () =>
     Effect.gen(function* () {
       const store = yield* Store.make(settings);
       const ready = yield* Deferred.make<void>();
