@@ -7,11 +7,11 @@ import {
   type RouterState,
   initial,
 } from "@cab/router";
-import { useAtomMount, useAtomSet, useAtomValue } from "@effect/atom-solid";
-import { Effect, Layer, Stream, type Cause } from "effect";
-import * as Atom from "effect/unstable/reactivity/Atom";
-import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
-import { createMemo, type Accessor } from "solid-js";
+import type { Sequenced, StoreReader } from "@cab/store";
+import { Effect, Layer, ManagedRuntime, Stream } from "effect";
+import { onCleanup, type Accessor } from "solid-js";
+
+import { createKeyAccessor } from "./bridge";
 
 // -----------------------------------------------------------------------------
 // Types
@@ -23,8 +23,8 @@ import { createMemo, type Accessor } from "solid-js";
  *
  * **Details**
  *
- * Each instance owns its reactive wiring, so two routers in one atom registry
- * are fully independent. The atom details are intentionally private; consumers
+ * Each instance owns its Effect runtime and reactive bridge, so two routers are
+ * fully independent. The runtime details are intentionally private; consumers
  * interact with the instance through `RouterProvider` and the Solid hooks.
  *
  * @see {@link createBrowserRouter} for browser-backed construction
@@ -42,113 +42,179 @@ export class SolidRouter {
   static make(
     layer: Layer.Layer<Router, HistoryError>,
     initialState: RouterState,
-    onEvent?: (event: RouterEvent) => void,
+    onEvent?: (event: Sequenced<RouterEvent>) => void,
   ): SolidRouter {
-    // Each router instance gets its own Layer.MemoMap. The module-level
-    // Atom.runtime factory memoizes layers by reference in a shared MemoMap, so
-    // two instances built from the same layer object (Router.layer,
-    // Router.layerBrowser) would silently share one Router service.
-    const factory = Atom.context({ memoMap: Layer.makeMemoMapUnsafe() });
-    const runtimeAtom = factory(layer);
-
-    const stateAtom = runtimeAtom.atom(
-      Stream.unwrap(
-        Effect.gen(function* () {
-          const router = yield* Router;
-          return router.stateChanges;
-        }),
-      ),
-      { initialValue: initialState },
-    );
-
-    const navigateAtom = runtimeAtom.fn<string>()((href: string) =>
-      Effect.gen(function* () {
-        const router = yield* Router;
-        yield* router.navigate(href);
-      }),
-    );
-
-    const dispatchAtom = runtimeAtom.fn<RouterCommand>()((command: RouterCommand) =>
-      Effect.gen(function* () {
-        const router = yield* Router;
-        yield* router.dispatch(command);
-      }),
-    );
-
-    const journalTapAtom =
-      onEvent === undefined
-        ? undefined
-        : runtimeAtom.atom(
-            Stream.unwrap(
-              Effect.gen(function* () {
-                const router = yield* Router;
-                return router.journalChanges.pipe(
-                  Stream.tap((event) => Effect.sync(() => onEvent(event))),
-                );
-              }),
-            ),
-          );
-
     return new SolidRouter({
-      runtimeAtom,
-      stateAtom,
-      navigateAtom,
-      dispatchAtom,
+      runtime: ManagedRuntime.make(layer),
       initialState,
-      ...(journalTapAtom === undefined ? {} : { journalTapAtom }),
+      reader: undefined,
+      readerListeners: new Set(),
+      status: "new",
+      ...(onEvent === undefined ? {} : { onEvent }),
     });
   }
 
   static mountProvider(router: SolidRouter): void {
-    useAtomMount(() => router.#impl.runtimeAtom);
-    useAtomMount(() => router.#impl.stateAtom);
+    const impl = router.#impl;
 
-    const journalTapAtom = router.#impl.journalTapAtom;
-
-    if (journalTapAtom !== undefined) {
-      useAtomMount(() => journalTapAtom);
+    if (impl.status === "mounted") {
+      throw new Error(
+        "@cab/router-solid: router instance is already mounted. Create a separate router instance for each <RouterProvider>.",
+      );
     }
+
+    if (impl.status === "disposed") {
+      throw new Error(
+        "@cab/router-solid: router instance has been disposed. Create a new router instance before mounting another <RouterProvider>.",
+      );
+    }
+
+    impl.status = "mounted";
+
+    let disposed = false;
+
+    void impl.runtime
+      .runPromise(Router)
+      .then((service) => {
+        if (disposed) return;
+
+        impl.reader = service.reader;
+
+        for (const listener of impl.readerListeners) {
+          listener(service.reader);
+        }
+      })
+      .catch((error: unknown) => {
+        if (disposed) return;
+
+        impl.startupError = error;
+        impl.status = "disposed";
+        impl.reader = undefined;
+        impl.readerListeners.clear();
+        disposeRuntime(impl);
+      });
+
+    const onEvent = impl.onEvent;
+
+    if (onEvent !== undefined) {
+      impl.runtime.runFork(
+        Effect.gen(function* () {
+          const service = yield* Router;
+          yield* service.reader.journalChanges.pipe(
+            Stream.runForEach((event) => Effect.sync(() => onEvent(event))),
+          );
+        }),
+      );
+    }
+
+    onCleanup(() => {
+      disposed = true;
+      impl.status = "disposed";
+      impl.reader = undefined;
+      impl.readerListeners.clear();
+      disposeRuntime(impl);
+    });
   }
 
   static useState(router: SolidRouter): Accessor<RouterState>;
   static useState<TSelected>(
     router: SolidRouter,
-    options: { readonly select: (state: RouterState) => TSelected },
+    options: {
+      readonly select: (state: RouterState) => TSelected;
+      readonly equals?: (prev: TSelected, next: TSelected) => boolean;
+    },
   ): Accessor<TSelected>;
   static useState<TSelected>(
     router: SolidRouter,
-    options?: { readonly select: (state: RouterState) => TSelected },
+    options?: {
+      readonly select: (state: RouterState) => TSelected;
+      readonly equals?: (prev: TSelected, next: TSelected) => boolean;
+    },
   ): Accessor<RouterState | TSelected> {
-    const result = useAtomValue(() => router.#impl.stateAtom);
-
     if (options === undefined) {
-      return createMemo<RouterState>((previous) => {
-        const current = result();
-        return AsyncResult.isSuccess(current) ? current.value : previous;
-      }, router.#impl.initialState);
+      return createKeyAccessor(
+        () => router.#impl.reader,
+        (listener) => router.#subscribeReader(listener),
+        "href",
+        router.#impl.initialState.href,
+        (href) => ({ href }),
+      );
     }
 
     const select = options.select;
 
-    return createMemo<TSelected>((previous) => {
-      const current = result();
-      return AsyncResult.isSuccess(current) ? select(current.value) : previous;
-    }, select(router.#impl.initialState));
+    return createKeyAccessor(
+      () => router.#impl.reader,
+      (listener) => router.#subscribeReader(listener),
+      "href",
+      router.#impl.initialState.href,
+      (href) => select({ href }),
+      options.equals === undefined ? undefined : { equals: options.equals },
+    );
   }
 
   static useNavigate(router: SolidRouter): (href: string) => void {
-    const navigate = useAtomSet(() => router.#impl.navigateAtom);
-
     return (href: string) => {
-      navigate(href);
+      const impl = router.#assertDispatchable();
+
+      impl.runtime.runFork(
+        Effect.gen(function* () {
+          const service = yield* Router;
+          yield* service.navigate(href);
+        }),
+      );
     };
   }
 
   static useDispatch(router: SolidRouter): (command: RouterCommand) => void {
-    const dispatch = useAtomSet(() => router.#impl.dispatchAtom);
-
     return (command: RouterCommand) => {
-      dispatch(command);
+      const impl = router.#assertDispatchable();
+
+      impl.runtime.runFork(
+        Effect.gen(function* () {
+          const service = yield* Router;
+          yield* service.dispatch(command);
+        }),
+      );
+    };
+  }
+
+  #assertDispatchable(): SolidRouterImpl {
+    const impl = this.#impl;
+
+    if (impl.startupError !== undefined) {
+      throw new Error("@cab/router-solid: router runtime failed to start.", {
+        cause: impl.startupError,
+      });
+    }
+
+    if (impl.status === "disposed") {
+      throw new Error(
+        "@cab/router-solid: router instance has been disposed. Ignore stale hook callbacks after <RouterProvider> unmounts.",
+      );
+    }
+
+    if (impl.status !== "mounted") {
+      throw new Error(
+        "@cab/router-solid: router instance is not mounted. Dispatch through hooks inside <RouterProvider>.",
+      );
+    }
+
+    return impl;
+  }
+
+  #subscribeReader(listener: (reader: StoreReader<RouterState, RouterEvent>) => void): () => void {
+    const reader = this.#impl.reader;
+
+    if (reader !== undefined) {
+      listener(reader);
+      return () => {};
+    }
+
+    this.#impl.readerListeners.add(listener);
+
+    return () => {
+      this.#impl.readerListeners.delete(listener);
     };
   }
 }
@@ -178,30 +244,31 @@ export interface MemoryRouter {
  * `onEvent` observes every journal fact the router appends — requested,
  * committed, observed, and failed navigation — for the lifetime of the mounted
  * `RouterProvider`. Use it for console logging, devtools, and analytics. The
- * journal itself stays in `@cab/router` (`router.journal`,
- * `router.journalChanges`) for Effect-land consumers.
+ * journal itself stays in `@cab/router` (`router.reader.journal`,
+ * `router.reader.journalChanges`) for Effect-land consumers.
  *
  * @category models
  * @since 0.0.0
  */
 export interface RouterOptions {
-  readonly onEvent?: (event: RouterEvent) => void;
+  readonly onEvent?: (event: Sequenced<RouterEvent>) => void;
 }
 
 /**
- * Private per-instance atoms and seed state backing a `SolidRouter`.
+ * Private per-instance runtime and seed state backing a `SolidRouter`.
  */
 interface SolidRouterImpl {
-  readonly runtimeAtom: Atom.AtomRuntime<Router, HistoryError>;
-  readonly stateAtom: Atom.Atom<
-    AsyncResult.AsyncResult<RouterState, HistoryError | Cause.NoSuchElementError>
-  >;
-  readonly navigateAtom: Atom.AtomResultFn<string, void, HistoryError>;
-  readonly dispatchAtom: Atom.AtomResultFn<RouterCommand, void, HistoryError>;
+  readonly runtime: ManagedRuntime.ManagedRuntime<Router, HistoryError>;
   readonly initialState: RouterState;
-  readonly journalTapAtom?: Atom.Atom<
-    AsyncResult.AsyncResult<RouterEvent, HistoryError | Cause.NoSuchElementError>
-  >;
+  reader: StoreReader<RouterState, RouterEvent> | undefined;
+  readonly readerListeners: Set<(reader: StoreReader<RouterState, RouterEvent>) => void>;
+  status: "new" | "mounted" | "disposed";
+  startupError?: unknown;
+  readonly onEvent?: (event: Sequenced<RouterEvent>) => void;
+}
+
+function disposeRuntime(impl: SolidRouterImpl): void {
+  void impl.runtime.dispose().catch(() => undefined);
 }
 
 function windowHref(): string {
