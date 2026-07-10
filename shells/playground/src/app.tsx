@@ -6,7 +6,6 @@ import {
   useRouterNavigate,
   useRouterState,
 } from "@cab/router-solid";
-import { RegistryProvider } from "@effect/atom-solid";
 import * as stylex from "@stylexjs/stylex";
 import { For } from "solid-js";
 
@@ -30,11 +29,9 @@ const router = createBrowserRouter({
 
 export function App() {
   return (
-    <RegistryProvider>
-      <RouterProvider router={router}>
-        <RouterDemo />
-      </RouterProvider>
-    </RegistryProvider>
+    <RouterProvider router={router}>
+      <RouterDemo />
+    </RouterProvider>
   );
 }
 

@@ -6,9 +6,6 @@ settings:
 
 catalogs:
   default:
-    '@effect/atom-solid':
-      specifier: 4.0.0-beta.93
-      version: 4.0.0-beta.93
     '@effect/language-service':
       specifier: 0.86.3
       version: 0.86.3
@@ -116,9 +113,9 @@ importers:
       '@cab/router':
         specifier: workspace:*
         version: link:../router
-      '@effect/atom-solid':
-        specifier: 'catalog:'
-        version: 4.0.0-beta.93(effect@4.0.0-beta.93)(solid-js@1.9.14)
+      '@cab/store':
+        specifier: workspace:*
+        version: link:../store
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.93
@@ -199,9 +196,6 @@ importers:
       '@cab/router-solid':
         specifier: workspace:*
         version: link:../../libs/router-solid
-      '@effect/atom-solid':
-        specifier: 'catalog:'
-        version: 4.0.0-beta.93(effect@4.0.0-beta.93)(solid-js@1.9.14)
       '@stylexjs/stylex':
         specifier: 'catalog:'
         version: 0.19.0
@@ -420,12 +414,6 @@ packages:
 
   '@dual-bundle/import-meta-resolve@4.2.1':
     resolution: {integrity: sha512-id+7YRUgoUX6CgV0DtuhirQWodeeA7Lf4i2x71JS/vtA5pRb/hIGWlw+G6MeXvsM+MXrz0VAydTGElX1rAfgPg==}
-
-  '@effect/atom-solid@4.0.0-beta.93':
-    resolution: {integrity: sha512-dXclL+KDA2NwBWIPKW8u1yZTvkplAYYfWFVsLk3ytMAH/5qNdU52c8JwQefyH3O/LN0UgwOp/jbFSraMFBePZg==}
-    peerDependencies:
-      effect: ^4.0.0-beta.93
-      solid-js: '>=1 <2'
 
   '@effect/language-service@0.86.3':
     resolution: {integrity: sha512-0owy3ljB75Lx6yqjllwUesW16imxz7lMNghx+8BibaYxkrvIvcIw6dQIBf5hVFIAxTWqZNjxPJ2IE2aRm5gXrg==}
@@ -1826,11 +1814,6 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@dual-bundle/import-meta-resolve@4.2.1': {}
-
-  '@effect/atom-solid@4.0.0-beta.93(effect@4.0.0-beta.93)(solid-js@1.9.14)':
-    dependencies:
-      effect: 4.0.0-beta.93
-      solid-js: 1.9.14
 
   '@effect/language-service@0.86.3': {}
 

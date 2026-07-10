@@ -4,14 +4,13 @@
 
 It gives Solid applications a small, typed API for creating a router instance,
 providing it at the application root, reading the current route, and dispatching
-navigation without importing Effect atoms directly. The package is built on
-`@cab/router`, `@effect/atom-solid`, and Solid.
+navigation without importing Effect runtime details directly. The package is built on
+`@cab/router`, `@cab/store`, `effect`, and Solid.
 
 ## Why This Exists
 
 Navigation state should be easy to render from Solid components without making
-application code understand the router service runtime, stream-backed atoms, or
-atom registry wiring.
+application code understand the router service runtime or store bridge wiring.
 
 `@cab/router` keeps the framework-agnostic model:
 
@@ -25,8 +24,8 @@ navigate -> journal facts -> current state
 Solid component -> hooks -> RouterProvider -> @cab/router -> History
 ```
 
-This keeps atoms as adapter internals while giving applications plain
-Solid-facing hooks for route state and navigation.
+This keeps the store bridge as an adapter internal while giving applications
+plain Solid-facing hooks for route state and navigation.
 
 ## Current Scope
 
@@ -57,14 +56,8 @@ Inside this workspace, add the Solid router adapter to a shell package:
 pnpm --filter=@cab/shell-playground add @cab/router-solid@workspace:*
 ```
 
-Applications should mount one `RegistryProvider` above `RouterProvider`:
-
-```bash
-pnpm --filter=@cab/shell-playground add @effect/atom-solid@catalog:
-```
-
-`@cab/router-solid` depends on `@cab/router`, `effect`, and `solid-js`, which are
-managed through the workspace and catalog.
+`@cab/router-solid` depends on `@cab/router`, `@cab/store`, `effect`, and
+`solid-js`, which are managed through the workspace and catalog.
 
 ## Core Concepts
 
@@ -85,8 +78,13 @@ const router = createBrowserRouter();
 `RouterProvider` provides a `SolidRouter` instance to the component tree and
 keeps the router runtime mounted for the lifetime of the provider.
 
-`RouterProvider` does not create an atom registry. Mount `RegistryProvider` at
-the application root so atom state has a defined lifetime.
+`RouterProvider` owns the router runtime lifetime. Unmounting the provider
+disposes the runtime and route subscriptions.
+
+A `SolidRouter` instance has one provider lifetime. Do not mount the same
+instance in two providers, and do not remount it after unmount; create a new
+router instance instead. Router providers also must not be nested; provide one
+router at the application root.
 
 ### State
 
@@ -137,6 +135,7 @@ useRouterState(): Accessor<RouterState>;
 
 useRouterState<TSelected>(options: {
   readonly select: (state: RouterState) => TSelected;
+  readonly equals?: (a: TSelected, b: TSelected) => boolean;
 }): Accessor<TSelected>;
 
 useRouterNavigate(): (href: string) => void;
@@ -153,6 +152,8 @@ Use these fields as follows:
 - `RouterProvider` provides the router instance and mounts its runtime lifetime.
 - `useRouter` reads the current router instance from context.
 - `useRouterState` reads the current route state as a total Solid accessor.
+- `useRouterState({ select, equals })` uses `equals` to deduplicate selected
+  output when provided.
 - `useRouterNavigate` returns an href navigation function.
 - `useRouterDispatch` returns a typed command dispatch function.
 
@@ -167,7 +168,6 @@ import {
   useRouterNavigate,
   useRouterState,
 } from "@cab/router-solid";
-import { RegistryProvider } from "@effect/atom-solid";
 
 const router = createBrowserRouter({
   onEvent: (event) => console.log("[router:event]", event),
@@ -175,11 +175,9 @@ const router = createBrowserRouter({
 
 export function App() {
   return (
-    <RegistryProvider>
-      <RouterProvider router={router}>
-        <Routes />
-      </RouterProvider>
-    </RegistryProvider>
+    <RouterProvider router={router}>
+      <Routes />
+    </RouterProvider>
   );
 }
 
@@ -244,7 +242,6 @@ Use `createMemoryRouter` to test Solid components without a browser history
 service.
 
 ```tsx
-import { RegistryProvider } from "@effect/atom-solid";
 import { render, waitFor } from "@solidjs/testing-library";
 import { Effect } from "effect";
 import { createMemoryRouter, RouterProvider, useRouterState } from "@cab/router-solid";
@@ -258,11 +255,9 @@ function Probe() {
 const memory = await Effect.runPromise(createMemoryRouter({ initialHref: "/" }));
 
 const screen = render(() => (
-  <RegistryProvider>
-    <RouterProvider router={memory.router}>
-      <Probe />
-    </RouterProvider>
-  </RegistryProvider>
+  <RouterProvider router={memory.router}>
+    <Probe />
+  </RouterProvider>
 ));
 
 await Effect.runPromise(memory.history.observe("/external"));
@@ -279,10 +274,15 @@ recording a push.
 ## Behavior Guarantees
 
 - One router instance owns one independent set of reactive router wiring.
-- Two router instances in one registry remain independent.
-- `RouterProvider` does not create an atom registry.
+- Two router instances remain independent.
+- `RouterProvider` owns and disposes the router runtime lifetime.
+- A `SolidRouter` instance is one-shot: double-mounting or remounting a disposed
+  instance throws a descriptive error.
+- Nested `RouterProvider` instances throw; provide one router at the application
+  root.
 - `useRouterState()` returns the seeded state first, then the live projection.
-- `useRouterState({ select })` returns the selected state slice.
+- `useRouterState({ select, equals })` returns the selected state slice and
+  supports custom selected-output equality.
 - `useRouterNavigate()` returns `void`; navigation failures are journal facts.
 - `useRouterDispatch()` dispatches typed router commands.
 - Browser back/forward navigation updates rendered state through the core router.

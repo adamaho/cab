@@ -3,7 +3,7 @@ export { RouterProvider, useRouter } from "./provider";
 export {
   createBrowserRouter,
   createMemoryRouter,
+  SolidRouter,
   type MemoryRouter,
   type RouterOptions,
-  type SolidRouter,
 } from "./router";

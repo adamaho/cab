@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@cab/router": "workspace:*",
-    "@effect/atom-solid": "catalog:",
+    "@cab/store": "workspace:*",
     "effect": "catalog:",
     "solid-js": "catalog:"
   },

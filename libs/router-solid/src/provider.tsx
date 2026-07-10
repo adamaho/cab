@@ -43,13 +43,11 @@ export function useRouter(): SolidRouter {
  *
  * **Details**
  *
- * The provider mounts the router runtime atom, the public state atom, and the
- * journal observer (when the router was created with `onEvent`) for the
- * lifetime of the provider, so router state and the underlying history
- * subscription stay alive even while no component reads them. It never creates
- * an `AtomRegistry`; mount one `RegistryProvider` at the application root
- * above this provider. The `router` prop is read once at setup and must not be
- * swapped afterwards.
+ * The provider mounts the router runtime and journal observer (when the router
+ * was created with `onEvent`) for the lifetime of the provider, so router state
+ * and the underlying history subscription stay alive even while no component
+ * reads them. The `router` prop is read once at setup and must not be swapped
+ * afterwards.
  *
  * @see {@link createBrowserRouter} for constructing the router instance
  * @category components
@@ -59,6 +57,14 @@ export function RouterProvider(props: {
   readonly router: SolidRouter;
   readonly children?: JSX.Element;
 }): JSX.Element {
+  const parent = useContext(RouterContext);
+
+  if (parent !== undefined) {
+    throw new Error(
+      "@cab/router-solid: nested <RouterProvider> instances are not supported. Provide one router at the application root.",
+    );
+  }
+
   const router = props.router;
   SolidRouter.mountProvider(router);
 

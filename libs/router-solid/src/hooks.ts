@@ -6,6 +6,7 @@ import { SolidRouter } from "./router";
 
 export interface UseRouterStateOptions<TSelected> {
   readonly select: (state: RouterState) => TSelected;
+  readonly equals?: (prev: TSelected, next: TSelected) => boolean;
 }
 
 /**
@@ -14,9 +15,8 @@ export interface UseRouterStateOptions<TSelected> {
  * **Details**
  *
  * The accessor always returns a `RouterState`: the synchronous construction
- * seed until the state stream emits, then the live projection. On construction
- * or stream failure it keeps returning the last known state. Pass `select` to
- * derive the specific state slice a component renders.
+ * seed until the router runtime is ready, then the live store projection. Pass
+ * `select` to derive the specific state slice a component renders.
  *
  * @category hooks
  * @since 0.0.0
