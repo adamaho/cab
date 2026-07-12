@@ -2,8 +2,14 @@ import type { RouterCommand, RouterState } from "@cab/router";
 import type { Accessor } from "solid-js";
 
 import { useRouter } from "./provider";
-import { SolidRouter } from "./router";
+import { makeRouterDispatch, makeRouterNavigate, selectRouterState } from "./router";
 
+/**
+ * Configures selection from router state.
+ *
+ * @category models
+ * @since 0.0.0
+ */
 export interface UseRouterStateOptions<TSelected> {
   readonly select: (state: RouterState) => TSelected;
   readonly equals?: (prev: TSelected, next: TSelected) => boolean;
@@ -14,9 +20,8 @@ export interface UseRouterStateOptions<TSelected> {
  *
  * **Details**
  *
- * The accessor always returns a `RouterState`: the synchronous construction
- * seed until the router runtime is ready, then the live store projection. Pass
- * `select` to derive the specific state slice a component renders.
+ * The accessor always returns the real folded model snapshot. Pass `select` to
+ * derive the specific state slice a component renders.
  *
  * @category hooks
  * @since 0.0.0
@@ -29,9 +34,7 @@ export function useRouterState<TSelected>(
   options?: UseRouterStateOptions<TSelected>,
 ): Accessor<RouterState | TSelected> {
   const router = useRouter();
-  return options === undefined
-    ? SolidRouter.useState(router)
-    : SolidRouter.useState(router, options);
+  return options === undefined ? selectRouterState(router) : selectRouterState(router, options);
 }
 
 /**
@@ -48,7 +51,7 @@ export function useRouterState<TSelected>(
  * @since 0.0.0
  */
 export function useRouterNavigate(): (href: string) => void {
-  return SolidRouter.useNavigate(useRouter());
+  return makeRouterNavigate(useRouter());
 }
 
 /**
@@ -59,5 +62,5 @@ export function useRouterNavigate(): (href: string) => void {
  * @since 0.0.0
  */
 export function useRouterDispatch(): (command: RouterCommand) => void {
-  return SolidRouter.useDispatch(useRouter());
+  return makeRouterDispatch(useRouter());
 }

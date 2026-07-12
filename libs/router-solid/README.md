@@ -4,7 +4,9 @@
 
 It gives Solid applications a small, typed API for creating a router instance,
 providing it at the application root, reading the current route, and dispatching
-navigation without importing Effect runtime details directly. The package is built on
+navigation without importing Effect runtime details directly. Browser router
+construction is synchronous: the real model exists before any provider mounts.
+Synchronous state therefore has no startup window. The package is built on
 `@cab/router`, `@cab/store`, `effect`, and Solid.
 
 ## Why This Exists
@@ -66,8 +68,9 @@ pnpm --filter=@cab/shell-playground add @cab/router-solid@workspace:*
 A `SolidRouter` is the adapter-owned router instance created by
 `createBrowserRouter` or `createMemoryRouter`.
 
-The instance owns the internal reactive wiring for one router. Applications pass
-it to `RouterProvider`; hooks read the current instance from context.
+The instance owns one stable model and its internal reactive wiring.
+Applications pass it to `RouterProvider`; hooks read the current instance from
+context. `SolidRouter` has no public constructor or `make` method.
 
 ```ts
 const router = createBrowserRouter();
@@ -78,13 +81,14 @@ const router = createBrowserRouter();
 `RouterProvider` provides a `SolidRouter` instance to the component tree and
 keeps the router runtime mounted for the lifetime of the provider.
 
-`RouterProvider` owns the router runtime lifetime. Unmounting the provider
-disposes the runtime and route subscriptions.
+`RouterProvider` owns one mounted process lifetime. Unmounting disposes that
+runtime, its history listener, and mounted subscriptions, but preserves the
+router's state, retained journal, sequence, and reader. The same instance can be
+remounted sequentially and reconciles the then-current history location.
 
-A `SolidRouter` instance has one provider lifetime. Do not mount the same
-instance in two providers, and do not remount it after unmount; create a new
-router instance instead. Router providers also must not be nested; provide one
-router at the application root.
+Concurrent mounts of one instance are rejected, as are nested providers.
+Functions returned by navigation or dispatch hooks belong to the mount that
+created them and throw if called after unmount, including after a later remount.
 
 ### State
 
@@ -113,16 +117,33 @@ Pass `onEvent` when creating a router to observe the journal facts that occur
 while the provider is mounted.
 
 Use this for console logging, devtools, analytics, and test feedback. The
-retained journal remains part of `@cab/router` for Effect-land consumers.
+callback receives new facts in ascending order, live-only for each mounted
+lifetime; facts produced while unmounted are retained but not replayed.
+Callback failures are reported and isolated so they cannot fail dispatch or
+stop later delivery. The retained journal remains part of `@cab/router` for
+Effect-land consumers.
 
 ## Solid Adapter API
 
 ```ts
-createBrowserRouter(options?: RouterOptions): SolidRouter;
+interface RouterOptions {
+  readonly onEvent?: (event: Sequenced<RouterEvent>) => void;
+}
+
+createBrowserRouter(options?: BrowserRouterOptions): SolidRouter;
+
+interface BrowserRouterOptions extends RouterOptions {
+  readonly initialHref?: string;
+}
 
 createMemoryRouter(options: RouterOptions & {
   readonly initialHref: string;
 }): Effect.Effect<MemoryRouter>;
+
+interface MemoryRouter {
+  readonly router: SolidRouter;
+  readonly history: MemoryHistory;
+}
 
 RouterProvider(props: {
   readonly router: SolidRouter;
@@ -145,15 +166,18 @@ useRouterDispatch(): (command: RouterCommand) => void;
 
 Use these fields as follows:
 
-- `createBrowserRouter` creates a browser-backed router seeded from
-  `window.location`.
+- `createBrowserRouter` synchronously creates a browser-backed router model. It
+  uses `initialHref` when provided, otherwise the current browser location or
+  `"/"` outside a browser.
 - `createMemoryRouter` creates a memory-backed router and returns the memory
   history handle for tests.
-- `RouterProvider` provides the router instance and mounts its runtime lifetime.
+- `RouterProvider` provides the router instance and mounts a replaceable runtime
+  lifetime around its stable model.
 - `useRouter` reads the current router instance from context.
 - `useRouterState` reads the current route state as a total Solid accessor.
-- `useRouterState({ select, equals })` uses `equals` to deduplicate selected
-  output when provided.
+- `useRouterState({ select, equals })` executes the selector inside the store,
+  dynamically tracks the top-level keys it reads, and uses `equals` to
+  deduplicate selected output when provided (`Object.is` by default).
 - `useRouterNavigate` returns an href navigation function.
 - `useRouterDispatch` returns a typed command dispatch function.
 
@@ -196,8 +220,23 @@ function Routes() {
 }
 ```
 
-`createBrowserRouter` seeds state synchronously from the current browser
-location, so `useRouterState()` always has a `RouterState` to return.
+`createBrowserRouter` creates the real folded model synchronously from the
+current browser location, so state exists before mount and
+`useRouterState()` always has a `RouterState` to return.
+
+### Server Rendering
+
+Pass `initialHref` to render a request URL without touching `window`:
+
+```tsx
+const router = createBrowserRouter({ initialHref: request.url });
+```
+
+Outside a browser, the default initial href is `"/"`. A server-mounted provider
+installs context and selector ownership only: it does not create an Effect
+runtime, acquire browser history, or deliver `onEvent`. Navigation callbacks
+require an active browser mount and throw descriptively on the server. On the
+client, mounting reconciles the model with the actual browser href.
 
 ### Select State
 
@@ -212,6 +251,9 @@ function CurrentHref() {
 ```
 
 Use `select` when a component only needs one derived value from the router state.
+The selector executes inside `@cab/store`; only the top-level state keys it reads
+become dependencies. Its dependencies are rediscovered when it reruns, and
+custom `equals` controls selected-output notification.
 
 ### Dispatch A Command
 
@@ -260,14 +302,14 @@ const screen = render(() => (
   </RouterProvider>
 ));
 
-await Effect.runPromise(memory.history.observe("/external"));
+await Effect.runPromise(memory.history.simulate("/external"));
 
 await waitFor(() => {
   expect(screen.getByTestId("href").textContent).toBe("/external");
 });
 ```
 
-`memory.history.observe(href)` simulates browser-originated navigation such as
+`memory.history.simulate(href)` simulates browser-originated navigation such as
 back/forward. It updates the memory location and emits a history change without
 recording a push.
 
@@ -275,18 +317,23 @@ recording a push.
 
 - One router instance owns one independent set of reactive router wiring.
 - Two router instances remain independent.
-- `RouterProvider` owns and disposes the router runtime lifetime.
-- A `SolidRouter` instance is one-shot: double-mounting or remounting a disposed
-  instance throws a descriptive error.
+- `createBrowserRouter` returns synchronously with the real model already
+  available; mounting does not replace its reader or state.
+- `RouterProvider` owns and disposes each mounted runtime lifetime while model
+  state and journal survive unmount.
+- Sequential remount is supported; concurrent mounts of one instance throw.
 - Nested `RouterProvider` instances throw; provide one router at the application
   root.
-- `useRouterState()` returns the seeded state first, then the live projection.
+- Hook callbacks captured from an old mount throw after unmount and cannot
+  dispatch into a later mount.
+- `useRouterState()` always returns the real folded projection.
 - `useRouterState({ select, equals })` returns the selected state slice and
-  supports custom selected-output equality.
+  runs dynamic dependency tracking and selected-output equality in the store.
 - `useRouterNavigate()` returns `void`; navigation failures are journal facts.
 - `useRouterDispatch()` dispatches typed router commands.
 - Browser back/forward navigation updates rendered state through the core router.
-- `onEvent` receives navigation facts while the provider is mounted.
+- `onEvent` receives live navigation facts while the provider is mounted;
+  failures are isolated and facts from unmounted gaps are not replayed.
 
 ## When To Use Events
 

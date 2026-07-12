@@ -1,49 +1,24 @@
 import type { StoreReader } from "@cab/store";
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 
-interface KeyAccessorOptions<TSelected> {
-  readonly equals?: (prev: TSelected, next: TSelected) => boolean;
-}
+export const RouterBridge = {
+  make<TState extends Record<string, unknown>, TEvent>(reader: StoreReader<TState, TEvent>) {
+    return {
+      select<TSelected>(
+        selector: (state: TState) => TSelected,
+        options?: { readonly equals?: (previous: TSelected, next: TSelected) => boolean },
+      ): Accessor<TSelected> {
+        const [value, setValue] = createSignal(selector(reader.getSnapshot()), { equals: false });
+        const unsubscribe = reader.subscribeSelector(
+          selector,
+          (next) => setValue(() => next),
+          options,
+        );
 
-export function createKeyAccessor<
-  TState extends Record<string, unknown>,
-  TEvent,
-  K extends keyof TState,
-  TSelected,
->(
-  getReader: () => StoreReader<TState, TEvent> | undefined,
-  onReader: (listener: (reader: StoreReader<TState, TEvent>) => void) => () => void,
-  key: K,
-  seed: TState[K],
-  select: (value: TState[K]) => TSelected,
-  options?: KeyAccessorOptions<TSelected>,
-): Accessor<TSelected> {
-  const reader = getReader();
-  const initial = select(reader === undefined ? seed : reader.read(key));
-  const [value, setValue] =
-    options?.equals === undefined
-      ? createSignal(initial)
-      : createSignal(initial, { equals: options.equals });
-  let unsubscribeKey: (() => void) | undefined;
+        onCleanup(unsubscribe);
 
-  function subscribe(nextReader: StoreReader<TState, TEvent>): void {
-    unsubscribeKey?.();
-    unsubscribeKey = nextReader.subscribe(key, (next) => {
-      setValue(() => select(next));
-    });
-    setValue(() => select(nextReader.read(key)));
-  }
-
-  if (reader === undefined) {
-    const unsubscribeReader = onReader(subscribe);
-    onCleanup(unsubscribeReader);
-  } else {
-    subscribe(reader);
-  }
-
-  onCleanup(() => {
-    unsubscribeKey?.();
-  });
-
-  return value;
-}
+        return value;
+      },
+    };
+  },
+} as const;

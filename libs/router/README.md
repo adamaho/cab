@@ -123,9 +123,21 @@ happened. This holds at the type level, not by convention.
 
 All reads live on `router.reader`, a `StoreReader<RouterState, RouterEvent>`
 from `@cab/store`: Effect-land views (`state`, `stateChanges`, `journal`,
-`journalChanges`) plus synchronous fine-grained reactive reads (`read`,
-`select`, `subscribe`). Writes live on the service (`navigate`, `dispatch`).
-There is no way to modify router state through the reader.
+`journalChanges`) plus synchronous snapshots and fine-grained reactive reads
+(`getSnapshot`, `read`, `select`, `subscribe`, `subscribeSelector`,
+`subscribeJournal`). Writes live on the service (`navigate`, `dispatch`). There
+is no way to modify router state through the reader.
+
+### Stable Model, Mounted Process
+
+`RouterModel.make(initialHref)` synchronously creates the stable router state,
+journal, sequence counter, reactive signals, and reader. The model owns no
+history listener or Effect scope. A `Router` layer mounts replaceable history
+observation and command I/O around that model without replacing its reader.
+
+This split lets state and journal survive sequential process lifetimes. The same
+model can be mounted again after a layer is released, but only one router
+process may lease a model at a time.
 
 ### State Versus Journal
 
@@ -137,11 +149,31 @@ rendering API; the journal is the explanation of how it came to be.
 
 ## Public API
 
-### `Router` / `Router.layer` / `Router.layerBrowser`
+### `RouterModel`
 
-The Effect service tag and its layers. `Router.layer` requires a `History`
-service; `Router.layerBrowser` provides the `window.history`-backed one.
-Construction seeds the projection from the history service's current href.
+`RouterModel.make(initialHref: string): RouterModel` synchronously creates a
+model. `model.reader` is stable for the full model lifetime and is the exact
+reader returned by every service built from that model.
+
+### `Router` / router layers
+
+The Effect service tag and its layers:
+
+```ts
+Router.layer: Layer.Layer<Router, HistoryError, History>;
+Router.layerBrowser: Layer.Layer<Router, HistoryError>;
+Router.layerFromModel(model: RouterModel): Layer.Layer<Router, HistoryError, History>;
+Router.layerBrowserFromModel(model: RouterModel): Layer.Layer<Router, HistoryError>;
+```
+
+`Router.layer` and `Router.layerBrowser` remain Effect-first convenience layers
+that create their own model. The `FromModel` variants mount a process around an
+existing stable model, preserving `service.reader === model.reader`. Concurrent
+layers over one model fail with a descriptive programmer defect; sequential
+layers are supported and preserve state, journal, sequence, and reader identity.
+
+All layers acquire listener-first history observation and catch the model up to
+the sampled canonical href before publishing the service.
 
 ### `router.navigate(href)`
 
@@ -170,11 +202,16 @@ full contract of each member. In router terms:
   untouched and do not emit).
 - `read("href")` is a synchronous reactive read, trackable inside signal
   computations.
+- `getSnapshot()` synchronously returns the exact current projection.
 - `select(fn)` derives a memoized reactive value over reads.
 - `subscribe("href", cb)` fires on change only and returns unsubscribe.
+- `subscribeSelector(fn, cb, options?)` dynamically tracks the state keys read
+  by `fn` and supports custom selected-output equality.
 - `journal` reads the retained facts as `Sequenced<RouterEvent>`.
 - `journalChanges` streams newly appended facts, live-only — use `journal`
   for retained history.
+- `subscribeJournal(cb)` synchronously receives newly committed facts,
+  live-only.
 
 ### `RouterState` / `RouterCommand` / `RouterEvent`
 
@@ -194,7 +231,35 @@ assertions (`journal.map(({ event }) => event).reduce(slice.reduce, initial(href
 `History` (service tag), `WindowHistory.layer`, `MemoryHistory.make(href)`,
 and `HistoryError`/`HistoryErrorReason`. `MemoryHistory` is the in-memory
 test double: `pushes` records router-owned navigation for assertions and
-`observe(href)` simulates browser-originated navigation.
+`simulate(href)` simulates browser-originated navigation.
+
+`HistoryShape.observe` acquires a scoped `HistoryObservation`:
+
+```ts
+interface HistoryObservation {
+  readonly initialHref: string;
+  readonly changes: Stream.Stream<void>;
+}
+
+interface HistoryShape {
+  // push, current, and changes remain available
+  readonly observe: Effect.Effect<HistoryObservation, HistoryError, Scope.Scope>;
+}
+
+interface MemoryHistory {
+  readonly layer: Layer.Layer<History>;
+  readonly pushes: Effect.Effect<ReadonlyArray<string>>;
+  readonly current: Effect.Effect<string>;
+  readonly simulate: (href: string) => Effect.Effect<void>;
+}
+```
+
+The listener is installed before `initialHref` is sampled. Later changes are a
+lossless queue of wakeups, not captured locations; each wakeup makes the router
+reread canonical `History.current` under its serialization boundary. The queue
+does not guarantee per-location fidelity: rapid external transitions can be
+coalesced by canonical rereads, so the journal records every observation the
+router made rather than every location visited.
 
 ## Examples
 
@@ -259,7 +324,7 @@ const program = Effect.gen(function* () {
       const router = yield* Router;
 
       yield* router.navigate("/settings");
-      yield* memory.observe("/account"); // simulate browser back/forward
+      yield* memory.simulate("/account"); // simulate browser back/forward
 
       return {
         state: yield* router.reader.state,
@@ -270,7 +335,7 @@ const program = Effect.gen(function* () {
   );
 
   console.log(result.state); // { href: "/account" }
-  console.log(yield* memory.pushes); // ["/settings"] — observe() records no push
+  console.log(yield* memory.pushes); // ["/settings"] — simulate() records no push
 });
 ```
 
@@ -287,7 +352,13 @@ const program = Effect.gen(function* () {
   unchanged.
 - **External navigation is observed**: browser back/forward appends a
   `NavigationObserved` fact and updates the projection.
+- **Listener-first startup**: history observation installs its listener before
+  sampling the initial href. Lossless wakeups reread canonical current state,
+  but do not promise one journal fact per location visited.
 - **Serialized sagas**: concurrent navigations process one at a time; journal
   facts appear in journal order with gapless sequences.
+- **Single process lease**: one `RouterModel` supports only one active router
+  process, while sequential process lifetimes preserve its state, journal,
+  sequence, and reader identity.
 - **Change-only streams**: `stateChanges` emits only when the projection
   actually changed; journal-only facts (requested, failed) do not emit.

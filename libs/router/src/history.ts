@@ -1,4 +1,4 @@
-import { Context, Data, Effect, Layer, PubSub, Ref, Stream } from "effect";
+import { Context, Data, Effect, Layer, PubSub, Queue, Ref, Scope, Stream } from "effect";
 
 /**
  * Machine-readable reasons for history service failures.
@@ -20,6 +20,23 @@ export class HistoryError extends Data.TaggedError("HistoryError")<{
 }> {}
 
 /**
+ * Initial history state and scoped wakeups for later external changes.
+ *
+ * **Details**
+ *
+ * `initialHref` is sampled after the change listener is installed. `changes`
+ * contains lossless wakeups rather than captured hrefs, so consumers reread
+ * `History.current` to observe the canonical location.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface HistoryObservation {
+  readonly initialHref: string;
+  readonly changes: Stream.Stream<void>;
+}
+
+/**
  * Service shape for reading and mutating the current browser location.
  *
  * @category models
@@ -29,6 +46,20 @@ export interface HistoryShape {
   readonly push: (href: string) => Effect.Effect<void, HistoryError>;
   readonly current: Effect.Effect<string, HistoryError>;
   readonly changes: Stream.Stream<string>;
+
+  /**
+   * Acquires a scoped, listener-first observation of external history changes.
+   *
+   * **Details**
+   *
+   * `initialHref` is sampled after listener installation. Later changes are
+   * lossless `void` wakeups, not captured hrefs; consumers must reread
+   * `current`. Closing the caller's scope removes the listener.
+   *
+   * @category observations
+   * @since 0.0.0
+   */
+  readonly observe: Effect.Effect<HistoryObservation, HistoryError, Scope.Scope>;
 }
 
 /**
@@ -45,7 +76,9 @@ export class History extends Context.Service<History, HistoryShape>()("@cab/rout
  * **Details**
  *
  * The layer fails with `HistoryError{ reason: "window-unavailable" }` when it is
- * constructed outside a browser-like environment.
+ * constructed outside a browser-like environment. Scoped observations install
+ * their `popstate` listener before sampling the initial href and remove it when
+ * the caller's scope closes.
  *
  * @category adapters
  * @since 0.0.0
@@ -77,6 +110,22 @@ export const WindowHistory: {
         changes: Stream.fromEventListener<PopStateEvent>(browserWindow, "popstate").pipe(
           Stream.map(() => currentHref()),
         ),
+        observe: Effect.fn("@cab/router/WindowHistory.observe")(function* () {
+          const wakeups = yield* Queue.unbounded<void>();
+          function listener() {
+            Queue.offerUnsafe(wakeups, undefined);
+          }
+
+          yield* Effect.acquireRelease(
+            Effect.sync(() => browserWindow.addEventListener("popstate", listener)),
+            () => Effect.sync(() => browserWindow.removeEventListener("popstate", listener)),
+          );
+
+          return {
+            initialHref: currentHref(),
+            changes: Stream.fromQueue(wakeups),
+          };
+        })(),
       };
     }),
   ),
@@ -87,9 +136,12 @@ export const WindowHistory: {
  *
  * **Details**
  *
- * `observe` simulates browser-originated navigation in tests. Late subscribers
- * to `changes` receive the most recent observation, which makes memory-backed
- * tests deterministic and intentionally differs from browser `popstate`.
+ * `simulate` produces browser-originated navigation in tests. Scoped
+ * observations install their listener before sampling the initial href and use
+ * lossless wakeups without relying on replay timing. Late subscribers to the
+ * compatibility `changes` stream receive the most recent href, which makes
+ * memory-backed tests deterministic and intentionally differs from browser
+ * `popstate`.
  *
  * @category models
  * @since 0.0.0
@@ -98,7 +150,14 @@ export interface MemoryHistory {
   readonly layer: Layer.Layer<History>;
   readonly pushes: Effect.Effect<ReadonlyArray<string>>;
   readonly current: Effect.Effect<string>;
-  readonly observe: (href: string) => Effect.Effect<void>;
+
+  /**
+   * Simulates browser-originated navigation without recording a history push.
+   *
+   * @category testing
+   * @since 0.0.0
+   */
+  readonly simulate: (href: string) => Effect.Effect<void>;
 }
 
 /**
@@ -114,9 +173,15 @@ export const MemoryHistory: {
     const locationRef = yield* Ref.make(initialHref);
     const pushesRef = yield* Ref.make<ReadonlyArray<string>>([]);
     const changesPubSub = yield* PubSub.unbounded<string>({ replay: 1 });
+    const observationListeners = new Set<() => void>();
     const current = Ref.get(locationRef);
-    const observe = Effect.fn("@cab/router/MemoryHistory.observe")(function* (href: string) {
+    const simulate = Effect.fn("@cab/router/MemoryHistory.simulate")(function* (href: string) {
       yield* Ref.set(locationRef, href);
+      yield* Effect.sync(() => {
+        for (const listener of observationListeners) {
+          listener();
+        }
+      });
       yield* PubSub.publish(changesPubSub, href);
     });
 
@@ -128,10 +193,26 @@ export const MemoryHistory: {
         }),
         current,
         changes: Stream.fromPubSub(changesPubSub),
+        observe: Effect.fn("@cab/router/MemoryHistory.observe")(function* () {
+          const wakeups = yield* Queue.unbounded<void>();
+          function listener() {
+            Queue.offerUnsafe(wakeups, undefined);
+          }
+
+          yield* Effect.acquireRelease(
+            Effect.sync(() => observationListeners.add(listener)),
+            () => Effect.sync(() => observationListeners.delete(listener)),
+          );
+
+          return {
+            initialHref: yield* current,
+            changes: Stream.fromQueue(wakeups),
+          };
+        })(),
       }),
       pushes: Ref.get(pushesRef),
       current,
-      observe,
+      simulate,
     };
   }),
 };

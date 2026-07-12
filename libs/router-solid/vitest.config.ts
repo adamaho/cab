@@ -10,5 +10,10 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     include: ["test/**/*.test.{ts,tsx}"],
+    typecheck: {
+      enabled: true,
+      include: ["test/**/*.test-d.ts"],
+      tsconfig: "./tsconfig.vitest.json",
+    },
   },
 });

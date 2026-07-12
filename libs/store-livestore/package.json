@@ -1,0 +1,30 @@
+{
+  "name": "@cab/store-livestore",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prototype: cab command layer and mission-fit assessment on top of LiveStore.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "clean": "rimraf node_modules dist build .turbo coverage tsconfig.tsbuildinfo",
+    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src test vitest.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts --passWithNoTests",
+    "tsc": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@livestore/adapter-node": "catalog:livestore",
+    "@livestore/common": "catalog:livestore",
+    "@livestore/livestore": "catalog:livestore",
+    "effect": "catalog:livestore"
+  },
+  "devDependencies": {
+    "@cab/tool-oxlint-config": "workspace:*",
+    "@cab/tool-tsconfig": "workspace:*",
+    "oxlint": "catalog:",
+    "rimraf": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

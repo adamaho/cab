@@ -157,6 +157,33 @@ const nested = Store.defineSlice({
   },
 });
 
+type FaultCommand = "single-defect" | "multi-defect" | "recover";
+type FaultEvent = "Incremented" | "Defect";
+
+const faultInitial = { count: 0 };
+
+const faulting = Store.defineSlice<{ readonly count: number }, FaultCommand, FaultEvent>({
+  name: "faulting",
+  initial: faultInitial,
+  decide: (_state, command) => {
+    switch (command) {
+      case "single-defect":
+        return ["Defect"];
+      case "multi-defect":
+        return ["Incremented", "Defect"];
+      case "recover":
+        return ["Incremented"];
+    }
+  },
+  reduce: (state, event) => {
+    if (event === "Defect") {
+      throw new Error("reducer defect");
+    }
+
+    return { count: state.count + 1 };
+  },
+});
+
 function foldSettings(events: ReadonlyArray<Sequenced<SettingsEvent>>) {
   return events.map(({ event }) => event).reduce(settings.reduce, settings.initial);
 }
@@ -212,6 +239,534 @@ describe("store", () => {
       expect(foldSettings(journal)).toEqual(state);
     }),
   );
+
+  it.effect("makeSync returns the same complete store behavior as make", () =>
+    Effect.gen(function* () {
+      const syncStore = Store.makeSync(settings);
+      const effectStore = yield* Store.make(settings);
+      const command = SettingsCommand.FooAndBazChanged({ foo: "next", baz: "bat" });
+
+      yield* syncStore.dispatch(command);
+      yield* effectStore.dispatch(command);
+
+      expect(syncStore.getSnapshot()).toEqual(effectStore.getSnapshot());
+      expect(syncStore.reader.getSnapshot()).toBe(syncStore.getSnapshot());
+      expect(yield* syncStore.state).toEqual(yield* effectStore.state);
+      expect(yield* syncStore.journal).toEqual(yield* effectStore.journal);
+      expect(syncStore.read("foo")).toBe(effectStore.read("foo"));
+    }),
+  );
+
+  it("getSnapshot is synchronous, exact, untracked, and reference-stable", () => {
+    const store = Store.makeSync(settings);
+    const initial = store.getSnapshot();
+    let reactiveRuns = 0;
+    const dispose = effect(() => {
+      reactiveRuns += 1;
+      store.getSnapshot();
+    });
+
+    expect(initial).toBe(settingsInitial);
+    expect(store.getSnapshot()).toBe(initial);
+
+    Effect.runSync(store.dispatch(SettingsCommand.Touched({ id: "touch-1" })));
+
+    expect(store.getSnapshot()).toBe(initial);
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(store.getSnapshot()).not.toBe(initial);
+    expect(store.getSnapshot()).toBe(Effect.runSync(store.state));
+    expect(store.getSnapshot()).toBe(store.getSnapshot());
+    expect(reactiveRuns).toBe(1);
+
+    dispose();
+  });
+
+  it("a fresh equal-key snapshot updates identity selection without rerunning property selection", () => {
+    const store = Store.makeSync(settings);
+    let identityRuns = 0;
+    let propertyRuns = 0;
+    const identities: Array<SettingsState> = [];
+    const unsubscribeIdentity = store.subscribeSelector(
+      (state) => {
+        identityRuns += 1;
+        return state;
+      },
+      (state) => identities.push(state),
+    );
+    const unsubscribeProperty = store.subscribeSelector(
+      (state) => {
+        propertyRuns += 1;
+        return state.baz;
+      },
+      () => undefined,
+    );
+    const before = store.getSnapshot();
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChangedWithoutDedup({ baz: "ball" })));
+
+    expect(store.getSnapshot()).not.toBe(before);
+    expect(identityRuns).toBe(2);
+    expect(propertyRuns).toBe(1);
+    expect(identities).toHaveLength(1);
+    expect(identities[0]).toBe(store.getSnapshot());
+
+    unsubscribeIdentity();
+    unsubscribeProperty();
+  });
+
+  it("commits the final snapshot before keyed, selector, and journal listeners", () => {
+    const store = Store.makeSync(settings);
+    const order: Array<string> = [];
+    const snapshots: Array<SettingsState> = [];
+    const unsubscribeKey = store.subscribe("foo", () => {
+      order.push("keyed");
+      snapshots.push(store.getSnapshot());
+    });
+    const unsubscribeSelector = store.subscribeSelector(
+      (state) => state.foo,
+      () => {
+        order.push("selector");
+        snapshots.push(store.getSnapshot());
+      },
+    );
+    const unsubscribeJournal = store.subscribeJournal((fact) => {
+      order.push(`journal-${fact.sequence}`);
+      snapshots.push(store.getSnapshot());
+    });
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooAndBazChanged({ foo: "next", baz: "bat" })));
+
+    expect(order.slice(0, 2).sort()).toEqual(["keyed", "selector"]);
+    expect(order.slice(2)).toEqual(["journal-0", "journal-1"]);
+    expect(snapshots).toHaveLength(4);
+    for (const snapshot of snapshots) {
+      expect(snapshot).toBe(store.getSnapshot());
+      expect(snapshot).toEqual({ foo: "next", baz: "bat" });
+    }
+
+    unsubscribeKey();
+    unsubscribeSelector();
+    unsubscribeJournal();
+  });
+
+  for (const [kind, command] of [
+    ["single-event", "single-defect"],
+    ["multi-event", "multi-defect"],
+  ] as const) {
+    it.effect(`a ${kind} reducer defect is fault-atomic`, () =>
+      Effect.gen(function* () {
+        const store = Store.makeSync(faulting);
+        const eventsFiber = yield* forkCollect(store.journalChanges, 1);
+        let keyNotifications = 0;
+        let selectorRuns = 0;
+        let selectorNotifications = 0;
+        let identityRuns = 0;
+        let identityNotifications = 0;
+        let journalNotifications = 0;
+        const unsubscribeKey = store.subscribe("count", () => {
+          keyNotifications += 1;
+        });
+        const unsubscribeSelector = store.subscribeSelector(
+          (state) => {
+            selectorRuns += 1;
+            return state.count;
+          },
+          () => {
+            selectorNotifications += 1;
+          },
+        );
+        const unsubscribeIdentity = store.subscribeSelector(
+          (state) => {
+            identityRuns += 1;
+            return state;
+          },
+          () => {
+            identityNotifications += 1;
+          },
+        );
+        const unsubscribeJournal = store.subscribeJournal(() => {
+          journalNotifications += 1;
+        });
+
+        const failed = yield* Effect.exit(store.dispatch(command));
+
+        expect(failed._tag).toBe("Failure");
+        expect(store.getSnapshot()).toBe(faultInitial);
+        expect(yield* store.journal).toEqual([]);
+        expect(keyNotifications).toBe(0);
+        expect(selectorRuns).toBe(1);
+        expect(selectorNotifications).toBe(0);
+        expect(identityRuns).toBe(1);
+        expect(identityNotifications).toBe(0);
+        expect(journalNotifications).toBe(0);
+
+        yield* store.dispatch("recover");
+
+        expect(yield* Fiber.join(eventsFiber)).toEqual([{ sequence: 0, event: "Incremented" }]);
+
+        unsubscribeKey();
+        unsubscribeSelector();
+        unsubscribeIdentity();
+        unsubscribeJournal();
+      }),
+    );
+  }
+
+  it("a selector tracks one key and ignores an unrelated key change", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const values: Array<string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return state.foo;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(selectorRuns).toBe(2);
+    expect(values).toEqual(["next"]);
+
+    unsubscribe();
+  });
+
+  it("a multi-key selector reruns once for one batched dispatch", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const values: Array<string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return `${state.foo}:${state.baz}`;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooAndBazChanged({ foo: "next", baz: "bat" })));
+
+    expect(selectorRuns).toBe(2);
+    expect(values).toEqual(["next:bat"]);
+
+    unsubscribe();
+  });
+
+  it("conditional selectors replace their dynamic dependencies", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return state.foo === "bar" ? state.baz : state.foo;
+      },
+      () => undefined,
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+
+    expect(selectorRuns).toBe(2);
+
+    unsubscribe();
+  });
+
+  it("replaces dependencies when equality suppresses notification", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const values: Array<boolean> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return (state.foo === "bar" ? state.baz : state.foo).length >= 0;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+
+    expect(selectorRuns).toBe(2);
+    expect(values).toEqual([]);
+
+    unsubscribe();
+  });
+
+  it("identity selection tracks the whole state and returns real snapshots", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const values: Array<SettingsState> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return state;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+    expect(values[0]).toBe(store.getSnapshot());
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+    expect(values[1]).toBe(store.getSnapshot());
+    expect(selectorRuns).toBe(3);
+
+    unsubscribe();
+  });
+
+  it("nested selection tracks its owning top-level key", () => {
+    const store = Store.makeSync(nested);
+    let selectorRuns = 0;
+    const values: Array<string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return state.settings.theme.colors.accent;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(NestedCommand.RadiusChanged({ radius: 8 })));
+
+    expect(selectorRuns).toBe(2);
+    expect(values).toEqual([]);
+
+    unsubscribe();
+  });
+
+  it("spread and Object.keys selectors track every top-level key", () => {
+    const store = Store.makeSync(settings);
+    let spreadRuns = 0;
+    let keysRuns = 0;
+    const unsubscribeSpread = store.subscribeSelector(
+      (state) => {
+        spreadRuns += 1;
+        return { ...state };
+      },
+      () => undefined,
+    );
+    const unsubscribeKeys = store.subscribeSelector(
+      (state) => {
+        keysRuns += 1;
+        return Object.keys(state);
+      },
+      () => undefined,
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+
+    expect(spreadRuns).toBe(3);
+    expect(keysRuns).toBe(3);
+
+    unsubscribeSpread();
+    unsubscribeKeys();
+  });
+
+  it("an in selector tracks the queried key", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return "foo" in state;
+      },
+      () => undefined,
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(selectorRuns).toBe(2);
+
+    unsubscribe();
+  });
+
+  it("delivers a function-valued selection as a value", () => {
+    const store = Store.makeSync(settings);
+    const values: Array<() => string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        const value = state.foo;
+        return () => value;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(values).toHaveLength(1);
+    expect(values[0]?.()).toBe("next");
+
+    unsubscribe();
+  });
+
+  it("custom equality suppresses equal object output", () => {
+    const store = Store.makeSync(settings);
+    const values: Array<{ readonly foo: string }> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => ({ foo: state.foo.toUpperCase() }),
+      (value) => values.push(value),
+      { equals: (previous, next) => previous.foo === next.foo },
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "BAR" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(values).toEqual([{ foo: "NEXT" }]);
+
+    unsubscribe();
+  });
+
+  it("custom equality compares against the last delivered value", () => {
+    const store = Store.makeSync(settings);
+    const values: Array<number> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => (state.foo === "bar" ? 0 : Number(state.foo)),
+      (value) => values.push(value),
+      { equals: (previous, next) => Math.abs(previous - next) < 10 },
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "6" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "12" })));
+
+    expect(values).toEqual([12]);
+
+    unsubscribe();
+  });
+
+  it("default selector equality uses Object.is", () => {
+    const store = Store.makeSync(settings);
+    const values: Array<number> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        if (state.foo === "negative") return -0;
+        if (state.foo === "positive") return 0;
+        return Number.NaN;
+      },
+      (value) => values.push(value),
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "negative" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "positive" })));
+
+    expect(values).toHaveLength(2);
+    expect(Object.is(values[0], -0)).toBe(true);
+    expect(Object.is(values[1], 0)).toBe(true);
+
+    unsubscribe();
+  });
+
+  it("listener and equality reads do not widen selector dependencies", () => {
+    const store = Store.makeSync(settings);
+    let selectorRuns = 0;
+    const values: Array<string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => {
+        selectorRuns += 1;
+        return state.baz;
+      },
+      (value) => {
+        store.read("foo");
+        values.push(value);
+      },
+      {
+        equals: (previous, next) => {
+          store.read("foo");
+          return Object.is(previous, next);
+        },
+      },
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(selectorRuns).toBe(2);
+    expect(values).toEqual(["bat"]);
+
+    unsubscribe();
+  });
+
+  it("selector unsubscribe is idempotent and prevents later notifications", () => {
+    const store = Store.makeSync(settings);
+    const values: Array<string> = [];
+    const unsubscribe = store.subscribeSelector(
+      (state) => state.foo,
+      (value) => values.push(value),
+    );
+
+    unsubscribe();
+    unsubscribe();
+    Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" })));
+
+    expect(values).toEqual([]);
+  });
+
+  it("selector listeners preserve enqueue-ack dispatch behavior", () => {
+    const store = Store.makeSync(settings);
+    let captured: string | undefined;
+    const unsubscribe = store.subscribeSelector(
+      (state) => state.baz,
+      () => {
+        Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "later" })));
+        captured = store.read("foo");
+      },
+    );
+
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+
+    expect(captured).toBe("bar");
+    expect(store.read("foo")).toBe("later");
+
+    unsubscribe();
+  });
+
+  it("journal subscribers receive committed state and ascending facts", () => {
+    const store = Store.makeSync(settings);
+    const facts: Array<Sequenced<SettingsEvent>> = [];
+    const snapshots: Array<SettingsState> = [];
+    const unsubscribe = store.subscribeJournal((fact) => {
+      facts.push(fact);
+      snapshots.push(store.getSnapshot());
+    });
+
+    Effect.runSync(store.dispatch(SettingsCommand.FooAndBazChanged({ foo: "next", baz: "bat" })));
+
+    expect(facts).toEqual([
+      { sequence: 0, event: SettingsEvent.FooChanged({ foo: "next" }) },
+      { sequence: 1, event: SettingsEvent.BazChanged({ baz: "bat" }) },
+    ]);
+    expect(snapshots).toEqual([
+      { foo: "next", baz: "bat" },
+      { foo: "next", baz: "bat" },
+    ]);
+    expect(snapshots.every((snapshot) => snapshot === store.getSnapshot())).toBe(true);
+
+    unsubscribe();
+  });
+
+  it("a throwing journal subscriber propagates after the projection commits", () => {
+    const store = Store.makeSync(settings);
+    const unsubscribe = store.subscribeJournal(() => {
+      throw new Error("journal boom");
+    });
+
+    expect(() =>
+      Effect.runSync(store.dispatch(SettingsCommand.FooChanged({ foo: "next" }))),
+    ).toThrow(/journal boom/);
+    expect(store.getSnapshot()).toEqual({ foo: "next", baz: "ball" });
+    expect(Effect.runSync(store.journal)).toEqual([
+      { sequence: 0, event: SettingsEvent.FooChanged({ foo: "next" }) },
+    ]);
+
+    unsubscribe();
+    Effect.runSync(store.dispatch(SettingsCommand.BazChanged({ baz: "bat" })));
+    expect(store.getSnapshot()).toEqual({ foo: "next", baz: "bat" });
+  });
 
   it.effect("decide returning no events appends nothing and notifies nobody", () =>
     Effect.gen(function* () {

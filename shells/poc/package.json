@@ -1,0 +1,39 @@
+{
+  "name": "@cab/shell-poc",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "clean": "rimraf node_modules dist .turbo coverage",
+    "lint": "oxlint --config ../../tools/oxlint-config/src/base.json src test vite.config.ts vitest.config.ts vitest.component.config.ts",
+    "tsc": "tsc --project tsconfig.json --noEmit",
+    "test:component": "vitest run --config vitest.component.config.ts",
+    "test:unit": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@mlc-ai/web-llm": "catalog:",
+    "alien-signals": "catalog:",
+    "effect": "catalog:",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@cab/tool-oxlint-config": "workspace:*",
+    "@cab/tool-tsconfig": "workspace:*",
+    "@effect/vitest": "catalog:",
+    "@solidjs/testing-library": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "jsdom": "catalog:",
+    "oxlint": "catalog:",
+    "playwright": "catalog:",
+    "rimraf": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plugin-solid": "catalog:",
+    "vitest": "catalog:"
+  }
+}

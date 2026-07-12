@@ -197,7 +197,7 @@ describe("router", () => {
           const eventFiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
-          yield* memory.observe("/external");
+          yield* memory.simulate("/external");
           yield* Fiber.join(stateFiber);
 
           return {
@@ -238,7 +238,7 @@ describe("router", () => {
           const eventsFiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           yield* Deferred.await(stateReady);
-          yield* memory.observe("/external");
+          yield* memory.simulate("/external");
 
           return {
             states: yield* Fiber.join(statesFiber),
@@ -265,9 +265,9 @@ describe("router", () => {
           const fiber = yield* forkCollect(router.reader.journalChanges, 1);
 
           // Both valid interleavings pass: the consumer can process `/` before
-          // `/external`, or the sliding buffer can coalesce directly to `/external`.
-          yield* memory.observe("/");
-          yield* memory.observe("/external");
+          // `/external`, or its canonical reread can see the final href directly.
+          yield* memory.simulate("/");
+          yield* memory.simulate("/external");
 
           return {
             event: yield* Fiber.join(fiber),
@@ -292,6 +292,7 @@ describe("router", () => {
       const historyLayer = Layer.succeed(History, {
         current: Effect.succeed("/"),
         changes: Stream.never,
+        observe: Effect.succeed({ initialHref: "/", changes: Stream.never }),
         push: Effect.fn("test.failHistory.push")(function* (href: string) {
           yield* Ref.update(attemptsRef, (attempts) => [...attempts, href]);
           return yield* Effect.fail(new HistoryError({ reason: "push-failed", cause }));
@@ -335,6 +336,7 @@ describe("router", () => {
       const historyLayer = Layer.succeed(History, {
         current: Effect.succeed("/"),
         changes: Stream.never,
+        observe: Effect.succeed({ initialHref: "/", changes: Stream.never }),
         push: Effect.fn("test.streamFailHistory.push")(function* () {
           return yield* Effect.fail(new HistoryError({ reason: "push-failed", cause }));
         }),
@@ -402,6 +404,7 @@ describe("router", () => {
       const historyLayer = Layer.succeed(History, {
         current: Effect.succeed("/"),
         changes: Stream.never,
+        observe: Effect.succeed({ initialHref: "/", changes: Stream.never }),
         push: Effect.fn("test.serialHistory.push")(function* (href: string) {
           yield* Ref.update(pushesRef, (pushes) => [...pushes, href]);
 
@@ -500,6 +503,10 @@ describe("router", () => {
           return href;
         }),
         changes: Stream.fromPubSub(changesPubSub),
+        observe: Effect.succeed({
+          initialHref: "/b",
+          changes: Stream.fromPubSub(changesPubSub).pipe(Stream.map(() => undefined)),
+        }),
         push: Effect.fn("test.staleObservationHistory.push")(function* (href: string) {
           yield* Deferred.succeed(pushStarted, undefined);
           yield* Deferred.await(releasePush);
@@ -566,6 +573,10 @@ describe("router", () => {
           return yield* Ref.get(locationRef);
         }),
         changes: Stream.fromPubSub(changesPubSub),
+        observe: Effect.succeed({
+          initialHref: "/",
+          changes: Stream.fromPubSub(changesPubSub).pipe(Stream.map(() => undefined)),
+        }),
         push: Effect.fn("test.recoveringObservationHistory.push")(function* (href: string) {
           yield* Ref.set(locationRef, href);
         }),
@@ -580,6 +591,10 @@ describe("router", () => {
           yield* Ref.set(failNextRef, true);
           yield* observe("/x");
           yield* Deferred.await(failedRead);
+
+          expect(yield* router.reader.state).toEqual({ href: "/" });
+          expect(yield* router.reader.journal).toEqual([]);
+
           yield* observe("/y");
 
           return {

@@ -1,6 +1,6 @@
 import { createContext, useContext, type JSX } from "solid-js";
 
-import { SolidRouter } from "./router";
+import { mountRouterProvider, SolidRouter } from "./router";
 
 // -----------------------------------------------------------------------------
 // Context
@@ -66,7 +66,7 @@ export function RouterProvider(props: {
   }
 
   const router = props.router;
-  SolidRouter.mountProvider(router);
+  mountRouterProvider(router);
 
   return <RouterContext.Provider value={router}>{props.children}</RouterContext.Provider>;
 }

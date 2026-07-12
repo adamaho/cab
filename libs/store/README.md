@@ -84,9 +84,9 @@ const settings = Store.defineSlice({
     }),
 });
 
-const program = Effect.gen(function* () {
-  const store = yield* Store.make(settings);
+const store = Store.makeSync(settings);
 
+const program = Effect.gen(function* () {
   const unsubscribe = store.subscribe("baz", (baz) => {
     console.log("baz is now", baz);
   });
@@ -135,9 +135,11 @@ store skip notifications for unchanged keys, at any depth.
 
 ### Store
 
-`Store.make(definition)` returns an `Effect` that builds one store instance.
-The store serializes dispatches, assigns gapless sequences, retains the
-journal, and keeps one signal per top-level state key.
+`Store.makeSync(definition)` synchronously builds one complete store instance
+and is the primary constructor. `Store.make(definition)` builds the same store
+inside an `Effect` for Effect-first callers. The store serializes dispatches,
+assigns gapless sequences, retains the journal, and keeps one signal per
+top-level state key.
 
 ### Reader
 
@@ -160,19 +162,27 @@ Pins inference for a `SliceDefinition<TState, TCommand, TEvent>`. `TState`
 must be a flat record; each top-level key becomes an independently observable
 signal.
 
-### `Store.make(definition)`
+### `Store.makeSync(definition)` / `makeSync`
+
+`Store<TState, TCommand, TEvent>`. The synchronous primary constructor returns
+a complete store whose state, subscriptions, and journal are ready immediately.
+
+### `Store.make(definition)` / `make`
 
 `Effect.Effect<Store<TState, TCommand, TEvent>>`. Construction is pure and
-synchronous-safe; no scope is required, and unused stores are simply garbage
-collected.
+synchronous-safe; it delegates to `makeSync` for Effect-first callers. No scope
+is required, and unused stores are simply garbage collected.
 
 ### `store.dispatch(command)`
 
 `(command: TCommand) => Effect.Effect<void>`
 
-Runs `decide`, appends each event to the journal, folds the new state, and
-notifies affected key subscribers — all synchronously. `Effect.runSync` on a
-dispatch is supported: when it returns, subscribers have already fired.
+Runs `decide`, folds the complete candidate state, appends the resulting facts,
+commits the state, and notifies affected subscribers — all synchronously.
+`Effect.runSync` on a dispatch is supported: when it returns, subscribers have
+already fired. If a reducer defects while folding any event, the dispatch is
+fault-atomic: no facts are retained or published, and state and signals remain
+unchanged.
 
 Dispatching from inside a subscriber listener is supported. The command is
 enqueued and applied in FIFO order before the boundary dispatch returns; from
@@ -188,6 +198,14 @@ defect instead of freezing.
 Synchronous read of one key. Inside a reactive computation (`select`, or a
 signal effect), the read is tracked and registers a dependency; outside, it is
 a plain read.
+
+### `store.getSnapshot()`
+
+`() => TState`
+
+Returns the exact current folded snapshot synchronously and without registering
+a reactive dependency. The reference remains stable until a reducer returns a
+different state object.
 
 ### `store.select(selector)`
 
@@ -207,6 +225,25 @@ after each dispatch that actually changed it, and never for other keys.
 Returns an unsubscribe function; the caller owns the lifetime. Listeners run
 untracked, so reads inside a listener never widen the subscription.
 
+### `store.subscribeSelector(selector, listener, options?)`
+
+```ts
+<TSelected>(
+  selector: (state: TState) => TSelected,
+  listener: (selected: TSelected) => void,
+  options?: { readonly equals?: (previous: TSelected, next: TSelected) => boolean },
+) => () => void
+```
+
+Evaluates once to establish a baseline without calling the listener, then
+subscribes to change-only selected output. Top-level keys read by the selector
+become dependencies and are rediscovered on every evaluation, so conditional
+selectors can change which keys they observe. Equality defaults to `Object.is`;
+pass `equals` to customize selected-output deduplication. Nested reads track
+their owning top-level key, while spread, `Object.keys`, and whole-state
+selection track all top-level keys. Returns a synchronous, idempotent
+unsubscribe function.
+
 ### `store.state` / `store.stateChanges`
 
 `Effect.Effect<TState>` and `Stream.Stream<TState>` — the Effect-land views.
@@ -221,6 +258,15 @@ returns the previous state reference do not emit.
 `Stream.Stream<Sequenced<TEvent>>` — the retained journal snapshot and the
 live stream of newly appended facts. `journalChanges` is live-only:
 subscribers receive facts appended after their subscription starts.
+
+### `store.subscribeJournal(listener)`
+
+`(listener: (fact: Sequenced<TEvent>) => void) => () => void`
+
+Synchronously subscribes to newly committed facts. It is live-only and does not
+replay retained facts. The state projection is committed before the listener
+receives its corresponding fact. Returns a synchronous, idempotent unsubscribe
+function.
 
 ### `Sequenced<TEvent>`
 
@@ -320,6 +366,9 @@ const program = Effect.gen(function* () {
 - **Fold invariant**: `fold(initial, journal)` always equals the current
   snapshot. Requested-but-rejected commands (where `decide` returned `[]`)
   never touch the journal.
+- **Fault-atomic dispatch**: all events are folded before facts are appended. A
+  reducer defect appends no facts, publishes no state or journal stream values,
+  and sends no keyed, selector, or journal notifications.
 - **Fine-grained notification**: a subscriber of one key never fires when only
   other keys change, and never fires for value-identical writes.
 - **Synchronous boundary**: `Effect.runSync(store.dispatch(...))` returns with

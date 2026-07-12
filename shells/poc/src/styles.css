@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: InterVariable, Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+@font-face {
+  font-family: InterVariable;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local("Inter Variable"), local("InterVariable");
+}
+
+@layer base {
+  html {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01", "ss03";
+  }
+
+  body {
+    margin: 0;
+  }
+
+  button:not(:disabled),
+  select:not(:disabled),
+  input:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@utility focus-ring {
+  @apply focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500;
+}
+
+@utility button-base {
+  @apply focus-ring relative inline-flex min-h-10 items-center justify-center rounded-lg px-3 text-base font-medium sm:min-h-8 sm:text-sm disabled:opacity-45;
+}
+
+@utility button-secondary {
+  @apply button-base bg-zinc-950/5 text-zinc-700 hover:bg-zinc-950/10 dark:bg-white/10 dark:text-zinc-200 dark:hover:bg-white/15;
+}
+
+@utility button-primary {
+  @apply button-base bg-emerald-600 text-white ring-1 ring-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:ring-emerald-500 dark:hover:bg-emerald-400;
+}
+
+@utility field-control {
+  @apply focus-visible:outline-2 focus-visible:-outline-offset-1 focus-visible:outline-emerald-500 rounded-lg bg-white px-3 py-2.5 text-base ring-1 ring-zinc-950/10 sm:py-1.5 sm:text-sm dark:bg-white/5 dark:ring-white/10;
+}
