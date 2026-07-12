@@ -9,11 +9,6 @@
     "noUnusedLocals": true,
     "noImplicitOverride": true,
     "isolatedModules": true,
-    "skipLibCheck": true,
-    "plugins": [
-      {
-        "name": "@effect/language-service"
-      }
-    ]
+    "skipLibCheck": true
   }
 }

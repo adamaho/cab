@@ -12,16 +12,11 @@
     "tsc": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@cab/router": "workspace:*",
-    "@cab/router-solid": "workspace:*",
-    "@stylexjs/stylex": "catalog:",
-    "effect": "catalog:",
     "solid-js": "catalog:"
   },
   "devDependencies": {
     "@cab/tool-oxlint-config": "workspace:*",
     "@cab/tool-tsconfig": "workspace:*",
-    "@stylexjs/unplugin": "catalog:",
     "oxlint": "catalog:",
     "rimraf": "catalog:",
     "typescript": "catalog:",

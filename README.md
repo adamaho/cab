@@ -1,10 +1,11 @@
 # cab
 
-`cab` is a workspace for building cab services, applications, shared
-packages, and supporting tooling.
+`cab` is a starter workspace for building Cab applications and services. It
+currently contains one blank Solid application in `shells/playground`.
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow,
-verification commands, workspace conventions, and commit guidelines.
+See [MISSION.md](./MISSION.md) for the product direction and
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow, workspace
+conventions, and commit guidelines.
 
 ## Prerequisites
 
@@ -29,6 +30,19 @@ the same toolchain as local development.
 ```bash
 nix develop
 opencode
+```
+
+Install dependencies and start the playground:
+
+```bash
+pnpm install
+pnpm --filter @cab/shell-playground dev
+```
+
+Run repository verification with:
+
+```bash
+pnpm check
 ```
 
 Agents should run verification commands from inside the Nix shell. If an agent

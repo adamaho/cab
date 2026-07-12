@@ -13,7 +13,6 @@
     "clean": "rimraf node_modules dist build .turbo coverage"
   },
   "devDependencies": {
-    "@effect/language-service": "catalog:",
     "rimraf": "catalog:",
     "typescript": "catalog:"
   }
